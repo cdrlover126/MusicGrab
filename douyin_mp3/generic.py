@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from .cookies import normalize_browser
+
 ProgressCallback = Callable[[int, int], None]
 
 
@@ -20,7 +22,13 @@ class GenericMeta:
     extractor: str = ""
 
 
-def _build_opts(dest_base: Path, proxy: str | None, progress: ProgressCallback | None) -> dict:
+def _build_opts(
+    dest_base: Path,
+    proxy: str | None,
+    progress: ProgressCallback | None,
+    cookies_file: str | None = None,
+    cookies_from_browser: str | None = None,
+) -> dict:
     opts: dict = {
         "format": "bestaudio/best",
         "outtmpl": str(dest_base) + ".%(ext)s",
@@ -35,6 +43,11 @@ def _build_opts(dest_base: Path, proxy: str | None, progress: ProgressCallback |
     }
     if proxy:
         opts["proxy"] = proxy
+    if cookies_file:
+        opts["cookiefile"] = str(Path(cookies_file).expanduser())
+    browser = normalize_browser(cookies_from_browser)
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
     if progress:
 
         def hook(d: dict) -> None:
@@ -50,30 +63,45 @@ def _build_opts(dest_base: Path, proxy: str | None, progress: ProgressCallback |
     return opts
 
 
+COOKIE_HINT = (
+    "该站点需要登录信息，请用 --cookies-from-browser edge（或 chrome/firefox）"
+    "或 --cookies cookies.txt 提供 cookies 后重试"
+)
+
+
+def _friendly_error(message: str) -> str:
+    lowered = message.lower()
+    if any(word in lowered for word in ("cookie", "login", "registered", "sign in", "log in")):
+        return f"{message}（{COOKIE_HINT}）"
+    return message
+
+
 def download_generic_audio(
     url: str,
     dest: Path,
     *,
     proxy: str | None = None,
     progress: ProgressCallback | None = None,
+    cookies_file: str | None = None,
+    cookies_from_browser: str | None = None,
 ) -> GenericMeta:
     """用 yt-dlp 下载任意支持站点的最佳音轨到 dest，返回元数据。"""
     try:
         import yt_dlp
     except ImportError as exc:
         raise GenericParseError(
-            "未安装 yt-dlp，无法处理抖音以外的链接。请执行: pip install yt-dlp"
+            "未安装 yt-dlp，无法处理抖音/快手以外的链接。请执行: pip install yt-dlp"
         ) from exc
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest_base = dest.with_suffix("")
-    opts = _build_opts(dest_base, proxy, progress)
+    opts = _build_opts(dest_base, proxy, progress, cookies_file, cookies_from_browser)
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-    except yt_dlp.utils.DownloadError as exc:
-        raise GenericParseError(f"站点解析/下载失败: {exc}") from exc
+    except Exception as exc:
+        raise GenericParseError(_friendly_error(str(exc).splitlines()[0])) from exc
 
     if not info:
         raise GenericParseError("站点未返回视频信息")

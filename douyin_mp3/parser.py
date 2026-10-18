@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 import requests
 
 from .config import MOBILE_UA, PC_UA, REQUEST_TIMEOUT
+from .cookies import load_requests_cookies
 
 URL_RE = re.compile(r"https?://[^\s<>\"'，。；！？]+", re.IGNORECASE)
 SHORT_LINK_RE = re.compile(r"(?:https?://)?v\.douyin\.com/([A-Za-z0-9_\-]+)", re.IGNORECASE)
@@ -21,6 +22,7 @@ ROUTER_DATA_RE = re.compile(
 )
 
 DOUYIN_DOMAINS = ("douyin.com", "iesdouyin.com", "douyinstatic.com")
+KUAISHOU_DOMAINS = ("kuaishou.com", "chenzhongtech.com", "gifshow.com")
 PLATFORM_LABELS = {
     "douyin": "抖音",
     "bilibili": "B站",
@@ -34,12 +36,12 @@ def classify_platform(url: str) -> str:
     host = (urlparse(url).hostname or "").lower()
     if any(host == d or host.endswith("." + d) for d in DOUYIN_DOMAINS):
         return "douyin"
+    if any(host == d or host.endswith("." + d) for d in KUAISHOU_DOMAINS):
+        return "kuaishou"
     if "bilibili.com" in host or "b23.tv" in host:
         return "bilibili"
     if "youtube.com" in host or "youtu.be" in host:
         return "youtube"
-    if "kuaishou.com" in host or "v.kuaishou.com" in host:
-        return "kuaishou"
     return "generic"
 
 
@@ -153,12 +155,24 @@ def _parse_item(item: dict, aweme_id: str, share_url: str) -> VideoInfo:
 
 
 class DouyinClient:
-    def __init__(self, proxy: str | None = None, timeout: int = REQUEST_TIMEOUT):
+    def __init__(
+        self,
+        proxy: str | None = None,
+        timeout: int = REQUEST_TIMEOUT,
+        *,
+        cookies_file: str | None = None,
+        cookies_from_browser: str | None = None,
+    ):
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9"})
         if proxy:
             self.session.proxies.update({"http": proxy, "https": proxy})
+        load_requests_cookies(
+            self.session,
+            cookies_file=cookies_file,
+            cookies_from_browser=cookies_from_browser,
+        )
         try:
             self.session.get("https://www.douyin.com/", timeout=self.timeout)
         except requests.RequestException:

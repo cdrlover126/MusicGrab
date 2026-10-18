@@ -49,6 +49,9 @@ def test_classify_platform():
     assert classify_platform("https://www.youtube.com/watch?v=abc") == "youtube"
     assert classify_platform("https://youtu.be/abc") == "youtube"
     assert classify_platform("https://v.kuaishou.com/abc") == "kuaishou"
+    assert classify_platform("https://www.kuaishou.com/short-video/3xabc") == "kuaishou"
+    assert classify_platform("https://kphm5nf3.m.chenzhongtech.com/fw/photo/3xabc") == "kuaishou"
+    assert classify_platform("https://www.weibo.com/tv/show/1034:123") == "generic"
     assert classify_platform("https://example.com/video") == "generic"
 
 

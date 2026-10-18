@@ -54,6 +54,15 @@ AUDIO_SOURCE_LABELS = {
     "music": "配乐原曲（纯音乐，仅抖音生效）",
 }
 
+ENGINE_CHOICES = ("auto", "douyin", "generic")
+ENGINE_LABELS = {
+    "auto": "自动（抖音/快手用内置解析器，其余走 yt-dlp）",
+    "douyin": "内置解析器（抖音/快手，无第三方依赖）",
+    "generic": "yt-dlp 通用引擎（可配合 cookies 处理需登录站点）",
+}
+
+COOKIE_BROWSER_CHOICES = ("edge", "chrome", "firefox", "chromium", "brave", "opera")
+
 
 def resolve_bitrate(quality: str) -> str:
     quality = str(quality).strip().lower().rstrip("k").strip()
@@ -76,6 +85,7 @@ class ConvertOptions:
     output_dir: Path = field(default_factory=lambda: DEFAULT_OUTPUT_DIR)
     quality: str = "192"
     audio_source: str = "auto"
+    engine: str = "auto"
     filename_template: str = "{index:03d}_{title}"
     skip_existing: bool = False
     delay: float = DELAY_BETWEEN_TASKS
@@ -83,7 +93,13 @@ class ConvertOptions:
     keep_temp: bool = False
     proxy: str | None = None
     ffmpeg_path: str | None = None
+    cookies_file: str | None = None
+    cookies_from_browser: str | None = None
 
     @property
     def bitrate(self) -> str:
         return resolve_bitrate(self.quality)
+
+    @property
+    def use_builtin_parser(self) -> bool:
+        return self.engine in ("auto", "douyin")

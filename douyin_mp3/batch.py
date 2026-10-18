@@ -12,8 +12,10 @@ import requests
 
 from .config import ConvertOptions, temp_dir
 from .converter import Mp3Meta, convert_to_mp3, probe_duration_seconds, sanitize_filename
+from .cookies import CookieError
 from .downloader import DownloadError, download_with_retry
 from .generic import GenericParseError, download_generic_audio
+from .kuaishou import KuaishouClient, KuaishouParseError
 from .parser import (
     DouyinClient,
     DouyinParseError,
@@ -55,10 +57,20 @@ class BatchProcessor:
         self.options = options
         self.ffmpeg_path = ffmpeg_path or options.ffmpeg_path
         self._cancel = threading.Event()
+        self._kuaishou: KuaishouClient | None = None
         self.on_log: LogFn = lambda msg: None
         self.on_item_start: ItemStartFn = lambda idx, total, url: None
         self.on_item_done: ItemDoneFn = lambda result: None
         self.on_all_done: AllDoneFn = lambda summary: None
+
+    def _kuaishou_client(self) -> KuaishouClient:
+        if self._kuaishou is None:
+            self._kuaishou = KuaishouClient(
+                proxy=self.options.proxy,
+                cookies_file=self.options.cookies_file,
+                cookies_from_browser=self.options.cookies_from_browser,
+            )
+        return self._kuaishou
 
     def cancel(self) -> None:
         self._cancel.set()
@@ -108,7 +120,11 @@ class BatchProcessor:
 
         options = self.options
         options.output_dir.mkdir(parents=True, exist_ok=True)
-        client = DouyinClient(proxy=options.proxy)
+        client = DouyinClient(
+            proxy=options.proxy,
+            cookies_file=options.cookies_file,
+            cookies_from_browser=options.cookies_from_browser,
+        )
         work_dir = temp_dir() / uuid.uuid4().hex[:8]
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -158,6 +174,9 @@ class BatchProcessor:
         options = self.options
         tmp_src = work_dir / f"{index:03d}.bin"
         platform = classify_platform(url)
+        use_builtin = options.use_builtin_parser
+        if not use_builtin and platform in ("douyin", "kuaishou"):
+            platform = "generic"
         try:
             def _cb(done: int, done_total: int) -> None:
                 if done_total:
@@ -182,14 +201,6 @@ class BatchProcessor:
                     return TaskResult(index, url, "failed", f"解析失败: {last_error}")
 
                 self._log(f"[{index}/{total}] 《{info.display_title}》 - {info.artist}")
-                if options.skip_existing:
-                    preview = self._unique_path(options.output_dir, "", index, info.display_title)
-                    if preview.exists():
-                        return TaskResult(
-                            index, url, "skipped", "已存在，跳过",
-                            str(preview), info.display_title, info.artist,
-                        )
-
                 primary, fallbacks = self._pick_source_url(info)
                 download_with_retry(
                     primary,
@@ -200,13 +211,50 @@ class BatchProcessor:
                     fallback_urls=[u for u in fallbacks if u],
                 )
                 title, artist, comment = info.display_title, info.artist, info.share_url
-                duration = probe_duration_seconds(find_ffmpeg_cached(self.ffmpeg_path), tmp_src)
+                duration = info.duration_ms / 1000 or probe_duration_seconds(
+                    find_ffmpeg_cached(self.ffmpeg_path), tmp_src
+                )
+            elif platform == "kuaishou":
+                kuaishou_client = self._kuaishou_client()
+                info = None
+                last_error = None
+                for attempt in range(1, options.max_retries + 1):
+                    try:
+                        info = kuaishou_client.fetch_info(url)
+                        break
+                    except (KuaishouParseError, requests.RequestException) as exc:
+                        last_error = exc
+                        self._log(f"[{index}/{total}] 快手解析失败(第{attempt}次): {exc}")
+                        time.sleep(2 * attempt)
+                if info is None:
+                    return TaskResult(index, url, "failed", f"快手解析失败: {last_error}")
+
+                self._log(f"[{index}/{total}] 《{info.display_title}》 - {info.artist}")
+                download_with_retry(
+                    info.video_urls[0],
+                    tmp_src,
+                    attempts=options.max_retries,
+                    session=kuaishou_client.session,
+                    progress=_cb,
+                    fallback_urls=info.video_urls[1:],
+                )
+                title, artist, comment = info.display_title, info.artist, info.share_url
+                duration = info.duration_ms / 1000 or probe_duration_seconds(
+                    find_ffmpeg_cached(self.ffmpeg_path), tmp_src
+                )
             else:
                 from .parser import PLATFORM_LABELS
 
                 label = PLATFORM_LABELS.get(platform, platform)
                 self._log(f"[{index}/{total}] 识别为{label}链接，使用通用引擎(yt-dlp)")
-                meta = download_generic_audio(url, tmp_src, proxy=options.proxy, progress=_cb)
+                meta = download_generic_audio(
+                    url,
+                    tmp_src,
+                    proxy=options.proxy,
+                    progress=_cb,
+                    cookies_file=options.cookies_file,
+                    cookies_from_browser=options.cookies_from_browser,
+                )
                 title, artist, comment = meta.title, meta.artist, meta.webpage_url
                 duration = meta.duration or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
@@ -237,7 +285,13 @@ class BatchProcessor:
             self._log(f"[{index}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
             return TaskResult(index, url, "ok", "成功", str(out_path), title, artist, duration, size)
         except (
-            DownloadError, DouyinParseError, GenericParseError, OSError, ValueError
+            DownloadError,
+            DouyinParseError,
+            KuaishouParseError,
+            GenericParseError,
+            CookieError,
+            OSError,
+            ValueError,
         ) as exc:
             self._log(f"[{index}/{total}] 失败: {exc}")
             return TaskResult(index, url, "failed", str(exc))

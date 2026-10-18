@@ -7,7 +7,10 @@ from .batch import BatchProcessor
 from .config import (
     AUDIO_SOURCE_CHOICES,
     AUDIO_SOURCE_LABELS,
+    COOKIE_BROWSER_CHOICES,
     DEFAULT_OUTPUT_DIR,
+    ENGINE_CHOICES,
+    ENGINE_LABELS,
     QUALITY_PRESETS,
     ConvertOptions,
 )
@@ -65,14 +68,14 @@ def run_gui() -> int:
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle(f"{APP_NAME} v{__version__} — 视频音乐批量转MP3（抖音/B站/YouTube）")
+            self.setWindowTitle(f"{APP_NAME} v{__version__} — 视频音乐批量转MP3（抖音/快手/B站/微博等）")
             self.resize(880, 640)
             self.worker: Worker | None = None
 
             root = QVBoxLayout()
             intro = QLabel(
-                "粘贴视频分享文本或链接（每行一条）：支持抖音、B站、YouTube、快手等站点，"
-                "自动识别平台"
+                "粘贴视频分享文本或链接（每行一条）：内置解析抖音、快手；"
+                "B站/微博/网易云/西瓜/YouTube 等站点走 yt-dlp，自动识别平台"
             )
             intro.setWordWrap(True)
             root.addWidget(intro)
@@ -80,8 +83,9 @@ def run_gui() -> int:
             self.links_edit = QPlainTextEdit()
             self.links_edit.setPlaceholderText(
                 "例：\n7.99 复制打开抖音 https://v.douyin.com/xxxxxxx/ 看看热门歌曲\n"
+                "https://v.kuaishou.com/xxxxxx\n"
                 "https://www.bilibili.com/video/BV1xx411c7mD\n"
-                "https://www.youtube.com/watch?v=xxxxxxxx"
+                "https://www.weibo.com/tv/show/1034:xxxxxxxx"
             )
             root.addWidget(self.links_edit, stretch=3)
 
@@ -114,12 +118,38 @@ def run_gui() -> int:
             self.delay_spin.setValue(2)
             grid.addWidget(self.delay_spin, 1, 3)
 
-            grid.addWidget(QLabel("输出目录:"), 2, 0)
+            grid.addWidget(QLabel("解析引擎:"), 2, 0)
+            self.engine_box = QComboBox()
+            for key in ENGINE_CHOICES:
+                self.engine_box.addItem(ENGINE_LABELS[key], key)
+            grid.addWidget(self.engine_box, 2, 1)
+
+            grid.addWidget(QLabel("代理(境外站点需要):"), 2, 2)
+            self.proxy_edit = QLineEdit()
+            self.proxy_edit.setPlaceholderText("如 http://127.0.0.1:7890，留空直连")
+            grid.addWidget(self.proxy_edit, 2, 3)
+
+            grid.addWidget(QLabel("cookies 文件:"), 3, 0)
+            self.cookies_edit = QLineEdit()
+            self.cookies_edit.setPlaceholderText("用于西瓜/小红书/QQ音乐等需登录站点，可留空")
+            grid.addWidget(self.cookies_edit, 3, 1, 1, 2)
+            cookies_btn = QPushButton("选择…")
+            cookies_btn.clicked.connect(self.pick_cookies)
+            grid.addWidget(cookies_btn, 3, 3)
+
+            grid.addWidget(QLabel("或读取浏览器 cookies:"), 4, 0)
+            self.browser_box = QComboBox()
+            self.browser_box.addItem("不使用", "")
+            for name in COOKIE_BROWSER_CHOICES:
+                self.browser_box.addItem(name, name)
+            grid.addWidget(self.browser_box, 4, 1)
+
+            grid.addWidget(QLabel("输出目录:"), 5, 0)
             self.dir_edit = QLineEdit(str(DEFAULT_OUTPUT_DIR))
-            grid.addWidget(self.dir_edit, 2, 1, 1, 2)
+            grid.addWidget(self.dir_edit, 5, 1, 1, 2)
             browse = QPushButton("浏览…")
             browse.clicked.connect(self.pick_dir)
-            grid.addWidget(browse, 2, 3)
+            grid.addWidget(browse, 5, 3)
             root.addWidget(box)
 
             btn_row = QHBoxLayout()
@@ -153,6 +183,13 @@ def run_gui() -> int:
             if chosen:
                 self.dir_edit.setText(chosen)
 
+        def pick_cookies(self) -> None:
+            chosen, _ = QFileDialog.getOpenFileName(
+                self, "选择 cookies 文件（Netscape 格式）", "", "Cookies (*.txt);;所有文件 (*)"
+            )
+            if chosen:
+                self.cookies_edit.setText(chosen)
+
         def append_log(self, msg: str) -> None:
             self.log_edit.appendPlainText(msg)
 
@@ -163,7 +200,7 @@ def run_gui() -> int:
                 if line.strip()
             ]
             if not lines:
-                QMessageBox.warning(self, APP_NAME, "请先粘贴至少一条抖音链接或分享文本")
+                QMessageBox.warning(self, APP_NAME, "请先粘贴至少一条链接或分享文本")
                 return
             if self.custom_quality.value() >= 32:
                 quality = str(self.custom_quality.value())
@@ -173,7 +210,11 @@ def run_gui() -> int:
                 output_dir=Path(self.dir_edit.text()).expanduser(),
                 quality=quality,
                 audio_source=self.source_box.currentData(),
+                engine=self.engine_box.currentData(),
                 delay=self.delay_spin.value() / 1.0,
+                proxy=self.proxy_edit.text().strip() or None,
+                cookies_file=self.cookies_edit.text().strip() or None,
+                cookies_from_browser=self.browser_box.currentData() or None,
             )
             self.worker = Worker(options, lines)
             self.worker.log.connect(self.append_log)
