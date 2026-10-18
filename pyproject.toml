@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "douyin-mp3"
+version = "1.0.0"
+description = "批量提取抖音视频音乐为车机可播放 MP3 的桌面应用"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "cdrlover" }]
+keywords = ["douyin", "mp3", "audio", "ffmpeg", "music"]
+dependencies = [
+    "requests>=2.31",
+    "mutagen>=1.47",
+    "imageio-ffmpeg>=0.4.9",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+dev = ["pytest>=8", "pyinstaller>=6"]
+
+[project.scripts]
+douyin-mp3 = "douyin_mp3.cli:main"
+
+[project.gui-scripts]
+DouyinMP3 = "douyin_mp3.app:run"
+
+[tool.setuptools.packages.find]
+include = ["douyin_mp3*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
