@@ -1,16 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all
 
+datas = []
 binaries = []
+hiddenimports = ['douyin_mp3', 'douyin_mp3.gui', 'mutagen.id3']
 binaries += collect_dynamic_libs('imageio_ffmpeg')
+tmp_ret = collect_all('yt_dlp')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['douyin_mp3/app.py'],
     pathex=[],
     binaries=binaries,
-    datas=[],
-    hiddenimports=['douyin_mp3', 'douyin_mp3.gui', 'mutagen.id3'],
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

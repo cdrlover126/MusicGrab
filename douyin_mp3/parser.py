@@ -20,6 +20,28 @@ ROUTER_DATA_RE = re.compile(
     r"window\._ROUTER_DATA\s*=\s*(\{.*?\})\s*;?\s*</script>", re.DOTALL
 )
 
+DOUYIN_DOMAINS = ("douyin.com", "iesdouyin.com", "douyinstatic.com")
+PLATFORM_LABELS = {
+    "douyin": "抖音",
+    "bilibili": "B站",
+    "youtube": "YouTube",
+    "kuaishou": "快手",
+    "generic": "通用",
+}
+
+
+def classify_platform(url: str) -> str:
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == d or host.endswith("." + d) for d in DOUYIN_DOMAINS):
+        return "douyin"
+    if "bilibili.com" in host or "b23.tv" in host:
+        return "bilibili"
+    if "youtube.com" in host or "youtu.be" in host:
+        return "youtube"
+    if "kuaishou.com" in host or "v.kuaishou.com" in host:
+        return "kuaishou"
+    return "generic"
+
 
 class DouyinParseError(RuntimeError):
     pass
@@ -51,11 +73,13 @@ def extract_urls(text: str) -> list[str]:
     urls: list[str] = []
     for match in URL_RE.findall(text or ""):
         url = match.rstrip(").,;'\"[]{}")
-        if "douyin.com" in url and url not in urls:
+        if url.startswith("http") and url not in urls:
             urls.append(url)
     if not urls:
         for match in SHORT_LINK_RE.findall(text or ""):
-            urls.append(f"https://v.douyin.com/{match}/")
+            candidate = f"https://v.douyin.com/{match}/"
+            if candidate not in urls:
+                urls.append(candidate)
     return urls
 
 

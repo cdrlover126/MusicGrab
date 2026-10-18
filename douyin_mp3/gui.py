@@ -65,19 +65,23 @@ def run_gui() -> int:
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle(f"{APP_NAME} v{__version__} — 抖音音乐批量转MP3")
+            self.setWindowTitle(f"{APP_NAME} v{__version__} — 视频音乐批量转MP3（抖音/B站/YouTube）")
             self.resize(880, 640)
             self.worker: Worker | None = None
 
             root = QVBoxLayout()
-            intro = QLabel("粘贴抖音分享文本或视频链接（每行一条，可直接整段分享口令）")
+            intro = QLabel(
+                "粘贴视频分享文本或链接（每行一条）：支持抖音、B站、YouTube、快手等站点，"
+                "自动识别平台"
+            )
             intro.setWordWrap(True)
             root.addWidget(intro)
 
             self.links_edit = QPlainTextEdit()
             self.links_edit.setPlaceholderText(
                 "例：\n7.99 复制打开抖音 https://v.douyin.com/xxxxxxx/ 看看热门歌曲\n"
-                "https://www.iesdouyin.com/share/video/7xxxxxxxxxxxxxxx/"
+                "https://www.bilibili.com/video/BV1xx411c7mD\n"
+                "https://www.youtube.com/watch?v=xxxxxxxx"
             )
             root.addWidget(self.links_edit, stretch=3)
 

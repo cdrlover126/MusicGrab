@@ -14,6 +14,7 @@ pyinstaller --noconfirm --clean `
   --icon assets\icon.ico `
   --version-file packaging\version_info.txt `
   --collect-binaries imageio_ffmpeg `
+  --collect-all yt_dlp `
   --hidden-import douyin_mp3 `
   --hidden-import douyin_mp3.gui `
   --hidden-import mutagen.id3 `

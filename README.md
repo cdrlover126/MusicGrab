@@ -1,10 +1,17 @@
-# DouyinMP3 — 抖音音乐批量转 MP3
+# DouyinMP3 — 视频音乐批量转 MP3（抖音/B站/YouTube）
 
-批量粘贴抖音分享口令/链接，自动解析并提取其中的音乐歌曲，转换为**车机系统可直接播放**的 MP3（ID3v2.3 标签、44.1kHz 立体声、码率可调），并生成转换报告。
+批量粘贴视频分享口令/链接，自动识别平台并提取其中的音乐歌曲，转换为**车机系统可直接播放**的 MP3（ID3v2.3 标签、44.1kHz 立体声、码率可调），并生成转换报告。
+
+## 支持平台
+| 平台 | 引擎 | 说明 |
+|---|---|---|
+| 抖音 | 内置专用解析器 | 支持分享口令整段粘贴，可选配乐原曲/视频音轨 |
+| B站 / YouTube / 快手等 | yt-dlp 通用引擎 | 自动取最佳音轨（1800+ 站点） |
+| 其他站点 | yt-dlp | 只要 yt-dlp 支持即可 |
 
 ## 功能
-- 批量处理：一次粘贴多条分享文本或链接
-- 音频来源可选：自动（优先配乐原曲）/ 视频音轨 / 纯配乐
+- 批量处理：一次粘贴多条分享文本或链接，平台自动识别
+- 音频来源可选：自动 / 视频音轨 / 纯配乐（抖音专用；其他站点取最佳音轨）
 - 质量可调：128 / 192 / 256 / 320 kbps，或 32–320 任意整数
 - 车机兼容：MP3 + ID3v2.3 标签（歌名/歌手/专辑/来源注释），44.1kHz、双声道
 - 内置 ffmpeg（imageio-ffmpeg），无需单独安装
@@ -27,11 +34,14 @@ douyin-mp3
 
 ### 命令行
 ```powershell
-# 单条
+# 抖音
 douyin-mp3 convert "https://v.douyin.com/xxxxxxx/" -q 192 -o D:\Music\车机音乐
 
-# 多条 + 完整参数
-douyin-mp3 convert "分享口令1 https://v.douyin.com/aaa/" "分享口令2 https://v.douyin.com/bbb/" `
+# B站 / YouTube 等（自动走 yt-dlp 通用引擎）
+douyin-mp3 convert "https://www.bilibili.com/video/BV1xx411c7mD" "https://youtu.be/xxxxxxxx" -q 320
+
+# 多平台混合批量 + 完整参数
+douyin-mp3 convert "分享口令1 https://v.douyin.com/aaa/" "https://www.bilibili.com/video/BV1yy" `
   --quality 320 --source auto --proxy http://127.0.0.1:7890 --skip-existing
 ```
 

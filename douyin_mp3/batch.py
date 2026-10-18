@@ -13,7 +13,14 @@ import requests
 from .config import ConvertOptions, temp_dir
 from .converter import Mp3Meta, convert_to_mp3, probe_duration_seconds, sanitize_filename
 from .downloader import DownloadError, download_with_retry
-from .parser import DouyinClient, DouyinParseError, VideoInfo, extract_urls
+from .generic import GenericParseError, download_generic_audio
+from .parser import (
+    DouyinClient,
+    DouyinParseError,
+    VideoInfo,
+    classify_platform,
+    extract_urls,
+)
 
 
 @dataclass
@@ -150,75 +157,88 @@ class BatchProcessor:
     ) -> TaskResult:
         options = self.options
         tmp_src = work_dir / f"{index:03d}.bin"
+        platform = classify_platform(url)
         try:
-            info = None
-            last_error: Exception | None = None
-            for attempt in range(1, options.max_retries + 1):
-                try:
-                    info = client.fetch_info(url)
-                    break
-                except (DouyinParseError, requests.RequestException) as exc:
-                    last_error = exc
-                    self._log(f"[{index}/{total}] 解析失败(第{attempt}次): {exc}")
-                    time.sleep(2 * attempt)
-            if info is None:
-                return TaskResult(index, url, "failed", f"解析失败: {last_error}")
-
-            self._log(
-                f"[{index}/{total}] 《{info.display_title}》 - {info.artist}"
-            )
-            if options.skip_existing:
-                preview = self._unique_path(options.output_dir, "", index, info.display_title)
-                if preview.exists():
-                    return TaskResult(
-                        index, url, "skipped", "已存在，跳过", str(preview), info.display_title, info.artist
-                    )
-
-            primary, fallbacks = self._pick_source_url(info)
-
             def _cb(done: int, done_total: int) -> None:
                 if done_total:
                     pct = done * 100 // done_total
                     self._log(f"[{index}/{total}] 下载中 {pct}%")
 
-            download_with_retry(
-                primary,
-                tmp_src,
-                attempts=options.max_retries,
-                session=client.session,
-                progress=_cb,
-                fallback_urls=[u for u in fallbacks if u],
-            )
+            title = artist = comment = ""
+            duration = 0.0
 
-            duration = probe_duration_seconds(find_ffmpeg_cached(self.ffmpeg_path), tmp_src)
-            title = sanitize_filename(info.display_title)
-            out_path = self._unique_path(options.output_dir, "", index, info.display_title)
+            if platform == "douyin":
+                info = None
+                last_error: Exception | None = None
+                for attempt in range(1, options.max_retries + 1):
+                    try:
+                        info = client.fetch_info(url)
+                        break
+                    except (DouyinParseError, requests.RequestException) as exc:
+                        last_error = exc
+                        self._log(f"[{index}/{total}] 解析失败(第{attempt}次): {exc}")
+                        time.sleep(2 * attempt)
+                if info is None:
+                    return TaskResult(index, url, "failed", f"解析失败: {last_error}")
+
+                self._log(f"[{index}/{total}] 《{info.display_title}》 - {info.artist}")
+                if options.skip_existing:
+                    preview = self._unique_path(options.output_dir, "", index, info.display_title)
+                    if preview.exists():
+                        return TaskResult(
+                            index, url, "skipped", "已存在，跳过",
+                            str(preview), info.display_title, info.artist,
+                        )
+
+                primary, fallbacks = self._pick_source_url(info)
+                download_with_retry(
+                    primary,
+                    tmp_src,
+                    attempts=options.max_retries,
+                    session=client.session,
+                    progress=_cb,
+                    fallback_urls=[u for u in fallbacks if u],
+                )
+                title, artist, comment = info.display_title, info.artist, info.share_url
+                duration = probe_duration_seconds(find_ffmpeg_cached(self.ffmpeg_path), tmp_src)
+            else:
+                from .parser import PLATFORM_LABELS
+
+                label = PLATFORM_LABELS.get(platform, platform)
+                self._log(f"[{index}/{total}] 识别为{label}链接，使用通用引擎(yt-dlp)")
+                meta = download_generic_audio(url, tmp_src, proxy=options.proxy, progress=_cb)
+                title, artist, comment = meta.title, meta.artist, meta.webpage_url
+                duration = meta.duration or probe_duration_seconds(
+                    find_ffmpeg_cached(self.ffmpeg_path), tmp_src
+                )
+                self._log(f"[{index}/{total}] 《{title}》 - {artist}")
+
+            if options.skip_existing:
+                preview = self._unique_path(options.output_dir, "", index, title)
+                if preview.exists():
+                    return TaskResult(
+                        index, url, "skipped", "已存在，跳过", str(preview), title, artist
+                    )
+
+            out_path = self._unique_path(options.output_dir, "", index, title)
             convert_to_mp3(
                 tmp_src,
                 out_path,
                 options.bitrate,
                 ffmpeg=self.ffmpeg_path,
                 meta=Mp3Meta(
-                    title=title,
-                    artist=info.artist,
-                    comment=info.share_url,
+                    title=sanitize_filename(title),
+                    artist=artist,
+                    comment=comment,
                     track=index,
                 ),
             )
             size = out_path.stat().st_size
             self._log(f"[{index}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
-            return TaskResult(
-                index,
-                url,
-                "ok",
-                "成功",
-                str(out_path),
-                info.title,
-                info.artist,
-                duration,
-                size,
-            )
-        except (DownloadError, DouyinParseError, OSError, ValueError) as exc:
+            return TaskResult(index, url, "ok", "成功", str(out_path), title, artist, duration, size)
+        except (
+            DownloadError, DouyinParseError, GenericParseError, OSError, ValueError
+        ) as exc:
             self._log(f"[{index}/{total}] 失败: {exc}")
             return TaskResult(index, url, "failed", str(exc))
         finally:

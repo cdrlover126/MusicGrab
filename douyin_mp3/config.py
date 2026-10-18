@@ -49,9 +49,9 @@ QUALITY_PRESETS: dict[str, QualityPreset] = {
 
 AUDIO_SOURCE_CHOICES = ("auto", "video", "music")
 AUDIO_SOURCE_LABELS = {
-    "auto": "自动（优先配乐原曲）",
-    "video": "视频音轨（含人声解说）",
-    "music": "配乐原曲（纯音乐）",
+    "auto": "自动（抖音优先配乐原曲，其他站点取最佳音轨）",
+    "video": "视频音轨（含人声解说，仅抖音生效）",
+    "music": "配乐原曲（纯音乐，仅抖音生效）",
 }
 
 

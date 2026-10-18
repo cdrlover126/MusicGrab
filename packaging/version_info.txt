@@ -1,4 +1,4 @@
-# UTF-8
+﻿# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
     filevers=(1, 0, 0, 0),
@@ -18,12 +18,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'cdrlover'),
             StringStruct('FileDescription', 'DouyinMP3 - 抖音音乐批量转MP3'),
-            StringStruct('FileVersion', '1.0.0.0'),
+            StringStruct('FileVersion', '1.1.0.0'),
             StringStruct('InternalName', 'DouyinMP3'),
             StringStruct('LegalCopyright', 'MIT License. Copyright (c) 2026 cdrlover.'),
             StringStruct('OriginalFilename', 'DouyinMP3.exe'),
             StringStruct('ProductName', 'DouyinMP3'),
-            StringStruct('ProductVersion', '1.0.0.0')
+            StringStruct('ProductVersion', '1.1.0.0')
           ]
         )
       ]

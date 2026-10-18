@@ -3,7 +3,11 @@ from __future__ import annotations
 from douyin_mp3.batch import BatchProcessor
 from douyin_mp3.config import ConvertOptions
 from douyin_mp3.converter import sanitize_filename
-from douyin_mp3.parser import extract_aweme_id, extract_urls
+from douyin_mp3.parser import (
+    classify_platform,
+    extract_aweme_id,
+    extract_urls,
+)
 
 
 def test_extract_urls_from_share_text():
@@ -24,9 +28,28 @@ def test_extract_multiple_urls_dedup():
     assert "7300000000000000001" in urls[1]
 
 
-def test_extract_urls_ignores_other_domains():
-    assert extract_urls("https://example.com/foo") == []
-    assert extract_urls("看看这个作品 https://www.bilibili.com/video/BV1xx") == []
+def test_extract_urls_keeps_multi_platform():
+    text = (
+        "抖音 https://v.douyin.com/aaa111/ "
+        "B站 https://www.bilibili.com/video/BV1xx411c7mD "
+        "油管 https://youtu.be/xxxxxxxx"
+    )
+    urls = extract_urls(text)
+    assert len(urls) == 3
+    assert any("bilibili.com" in u for u in urls)
+    assert any("youtu.be" in u for u in urls)
+
+
+def test_classify_platform():
+    assert classify_platform("https://v.douyin.com/abc/") == "douyin"
+    assert classify_platform("https://www.iesdouyin.com/share/video/123/") == "douyin"
+    assert classify_platform("https://www.douyin.com/video/7341234567890123") == "douyin"
+    assert classify_platform("https://www.bilibili.com/video/BV1xx411c7mD") == "bilibili"
+    assert classify_platform("https://b23.tv/abcdef") == "bilibili"
+    assert classify_platform("https://www.youtube.com/watch?v=abc") == "youtube"
+    assert classify_platform("https://youtu.be/abc") == "youtube"
+    assert classify_platform("https://v.kuaishou.com/abc") == "kuaishou"
+    assert classify_platform("https://example.com/video") == "generic"
 
 
 def test_extract_aweme_id():

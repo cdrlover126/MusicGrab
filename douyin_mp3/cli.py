@@ -16,13 +16,13 @@ from .config import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="douyin-mp3",
-        description="批量提取抖音视频中的音乐/歌曲为车机可播放的 MP3",
+        description="批量提取视频中的音乐/歌曲为车机可播放的 MP3（支持抖音专用解析，B站/YouTube等站点走 yt-dlp 通用引擎）",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     convert = sub.add_parser("convert", help="批量转换（命令行模式）")
-    convert.add_argument("inputs", nargs="+", help="抖音链接或包含链接的分享文本")
+    convert.add_argument("inputs", nargs="+", help="视频链接或包含链接的分享文本（抖音/B站/YouTube/快手等）")
     convert.add_argument(
         "-o",
         "--output",
