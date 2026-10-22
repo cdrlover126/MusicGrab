@@ -185,6 +185,7 @@ class BatchProcessor:
 
             title = artist = comment = ""
             duration = 0.0
+            album = "抖音音乐"
 
             if platform == "douyin":
                 info = None
@@ -256,6 +257,7 @@ class BatchProcessor:
                     cookies_from_browser=options.cookies_from_browser,
                 )
                 title, artist, comment = meta.title, meta.artist, meta.webpage_url
+                album = meta.album or "网络音乐"
                 duration = meta.duration or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
@@ -277,6 +279,7 @@ class BatchProcessor:
                 meta=Mp3Meta(
                     title=sanitize_filename(title),
                     artist=artist,
+                    album=album if platform != "douyin" else "抖音音乐",
                     comment=comment,
                     track=index,
                 ),

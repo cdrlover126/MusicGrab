@@ -20,6 +20,7 @@ class GenericMeta:
     duration: float = 0.0
     webpage_url: str = ""
     extractor: str = ""
+    album: str = ""
 
 
 def _build_opts(
@@ -119,9 +120,19 @@ def download_generic_audio(
 
     artist = (
         str(info.get("artist") or "").strip()
+        or ", ".join(str(a).strip() for a in (info.get("artists") or []) if a).strip()
+        or str(info.get("album_artist") or "").strip()
+        or ", ".join(str(a).strip() for a in (info.get("album_artists") or []) if a).strip()
+        or str(info.get("creator") or "").strip()
+        or ", ".join(str(a).strip() for a in (info.get("creators") or []) if a).strip()
         or str(info.get("uploader") or "").strip()
         or str(info.get("channel") or "").strip()
         or "未知歌手"
+    )
+    album = (
+        str(info.get("album") or "").strip()
+        or str(info.get("playlist_title") or "").strip()
+        or ""
     )
     return GenericMeta(
         title=str(info.get("title") or "").strip() or "未命名",
@@ -129,4 +140,5 @@ def download_generic_audio(
         duration=float(info.get("duration") or 0.0),
         webpage_url=str(info.get("webpage_url") or url),
         extractor=str(info.get("extractor_key") or info.get("extractor") or ""),
+        album=album,
     )
