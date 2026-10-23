@@ -51,6 +51,9 @@ def test_classify_platform():
     assert classify_platform("https://v.kuaishou.com/abc") == "kuaishou"
     assert classify_platform("https://www.kuaishou.com/short-video/3xabc") == "kuaishou"
     assert classify_platform("https://kphm5nf3.m.chenzhongtech.com/fw/photo/3xabc") == "kuaishou"
+    assert classify_platform("https://www.kugou.com/mixsong/g5jy4e47.html") == "kugou"
+    assert classify_platform("https://www.kugou.com/song/#g5jy4e47") == "kugou"
+    assert classify_platform("https://www.kugou.com/song/#hash=FF3432CE123121722CFF5CCA609AD434") == "kugou"
     assert classify_platform("https://www.weibo.com/tv/show/1034:123") == "generic"
     assert classify_platform("https://example.com/video") == "generic"
 

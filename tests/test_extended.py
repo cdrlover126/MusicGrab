@@ -11,6 +11,11 @@ from douyin_mp3.kuaishou import (
     KuaishouParseError,
     parse_kuaishou_html,
 )
+from douyin_mp3.kugou import (
+    _extract_smarty,
+    _extract_title_artist,
+    _resolve_ecid_url,
+)
 
 SAMPLE_ENTITY = {
     "photoId": "5233464383087894118",
@@ -118,3 +123,34 @@ def test_engine_option_defaults():
     assert options.use_builtin_parser is True
     assert ConvertOptions(engine="generic").use_builtin_parser is False
     assert ConvertOptions(engine="douyin").use_builtin_parser is True
+
+
+def test_kugou_resolve_ecid_url():
+    assert (
+        _resolve_ecid_url("https://www.kugou.com/song/#g5jy4e47")
+        == "https://www.kugou.com/mixsong/g5jy4e47.html"
+    )
+    assert (
+        _resolve_ecid_url("https://www.kugou.com/mixsong/g5jy4e47.html")
+        == "https://www.kugou.com/mixsong/g5jy4e47.html"
+    )
+    assert (
+        _resolve_ecid_url("https://www.kugou.com/song/#hash=FF3432CE123121722CFF5CCA609AD434")
+        == "https://www.kugou.com/song/#hash=FF3432CE123121722CFF5CCA609AD434"
+    )
+
+
+def test_kugou_extract_smarty_and_title():
+    html = (
+        "<script>var dataFromSmarty = "
+        '[{"hash":"BAA666B7B11E635EC8118C20E2C7FE7B","timelength":233000,'
+        '"audio_name":"\\u5f20\\u6770 - \\u524d\\u8def\\u6709\\u5149",'
+        '"author_name":"\\u5f20\\u6770","song_name":"\\u524d\\u8def\\u6709\\u5149"}],'
+        "//x</script>"
+    )
+    smarty = _extract_smarty(html)
+    assert smarty["hash"] == "BAA666B7B11E635EC8118C20E2C7FE7B"
+    assert smarty["timelength"] == 233000
+    title, artist = _extract_title_artist(html)
+    assert title == "前路有光"
+    assert artist == "张杰"

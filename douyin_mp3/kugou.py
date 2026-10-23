@@ -18,6 +18,16 @@ KUGOU_HASH_RE = re.compile(r"hash=([A-Fa-f0-9]{32})", re.IGNORECASE)
 KUGOU_MID_RE = re.compile(r"/(?:song|share|play)/#hash=([A-Fa-f0-9]{32})", re.IGNORECASE)
 SCRIPT_HASH_RE = re.compile(r'"hash"\s*:\s*"([A-Fa-f0-9]{32})"', re.IGNORECASE)
 
+# 形如 https://www.kugou.com/song/#g5jy4e47 （# 后为 encode_album_audio_id）
+KUGOU_SONG_ECID_RE = re.compile(
+    r"kugou\.com/(?:song|play|share)/?(?:[?#].*?)?#([A-Za-z0-9]{6,})", re.IGNORECASE
+)
+KUGOU_MIXSONG_ECID_RE = re.compile(
+    r"kugou\.com/mixsong/([A-Za-z0-9]{6,})\.html", re.IGNORECASE
+)
+
+SMARTY_DATA_RE = re.compile(r"dataFromSmarty\s*=\s*(\[.*?\])\s*[,;]", re.DOTALL)
+
 AUDIO_MY_RE = re.compile(r'<audio[^>]+id=["\']myAudio["\'][^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
 AUDIO_SRC_RE = re.compile(r'<audio[^>]+class=["\'][^"\']*music[^"\']*["\'][^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
 AUDIO_ANY_RE = re.compile(r'<audio[^>]+src=["\']([^"\']+\.mp3[^"\']*)["\']', re.IGNORECASE)
@@ -54,6 +64,19 @@ def _clean(s: Any) -> str:
     return text
 
 
+def _resolve_ecid_url(url: str) -> str:
+    """将形如 /song/#<ecid> 的链接归一化为可服务端渲染出 hash 的 mixsong 页面。
+
+    酷狗新版歌曲页 https://www.kugou.com/song/#<ecid> 的 <audio> 由 JS 动态填充，
+    但同一 ecid 也可通过 https://www.kugou.com/mixsong/<ecid>.html 访问，后者页面中
+    带有 data-hash / dataFromSmarty，可直接提取 hash。
+    """
+    m = KUGOU_SONG_ECID_RE.search(url)
+    if m:
+        return f"https://www.kugou.com/mixsong/{m.group(1)}.html"
+    return url
+
+
 def _extract_hash(url: str, html: str) -> str:
     m = KUGOU_HASH_RE.search(url)
     if m:
@@ -70,16 +93,51 @@ def _extract_hash(url: str, html: str) -> str:
     raise KugouParseError(f"无法从酷狗链接提取歌曲hash: {url}")
 
 
+def _extract_smarty(html: str) -> dict[str, Any]:
+    """提取页面中的 dataFromSmarty 元数据（JSON 数组首项）。"""
+    m = SMARTY_DATA_RE.search(html)
+    if not m:
+        return {}
+    raw = m.group(1)
+    try:
+        import json
+
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
 def _extract_title_artist(html: str) -> tuple[str, str]:
     title = ""
     artist = ""
 
+    smarty = _extract_smarty(html)
+    if smarty:
+        title = _clean(smarty.get("song_name") or smarty.get("audio_name"))
+        artist = _clean(smarty.get("author_name"))
+        if not title:
+            audio_name = _clean(smarty.get("audio_name"))
+            if audio_name:
+                if " - " in audio_name:
+                    left, right = audio_name.split(" - ", 1)
+                    artist = artist or left.strip()
+                    title = right.strip()
+                else:
+                    title = audio_name
+        if title and artist:
+            return title, artist
+
     m = SONG_NAME_RE.search(html)
     if m:
-        title = _clean(m.group(1))
+        title = title or _clean(m.group(1))
     m = SINGER_NAME_RE.search(html)
     if m:
-        artist = _clean(m.group(1))
+        artist = artist or _clean(m.group(1))
 
     if not title:
         m = OG_TITLE_RE.search(html)
@@ -137,7 +195,8 @@ class KugouClient:
         )
 
     def fetch_info(self, url: str) -> KugouInfo:
-        resp = self.session.get(url, allow_redirects=True, timeout=self.timeout)
+        fetch_url = _resolve_ecid_url(url)
+        resp = self.session.get(fetch_url, allow_redirects=True, timeout=self.timeout)
         resp.raise_for_status()
         html = resp.text
         final_url = resp.url
@@ -155,9 +214,11 @@ class KugouClient:
             if m:
                 play_url = html_module.unescape(m.group(1).strip())
 
-        song_hash = ""
+        smarty = _extract_smarty(html)
+
+        song_hash = _clean(smarty.get("hash")).lower() if smarty else ""
         try:
-            song_hash = _extract_hash(final_url, html)
+            song_hash = song_hash or _extract_hash(final_url, html)
         except KugouParseError:
             m = DATA_HASH_RE.search(html)
             if m:
@@ -212,12 +273,18 @@ class KugouClient:
             album = _clean(m.group(1) or m.group(2))
 
         duration_ms = 0
-        m = DURATION_RE.search(html)
-        if m:
+        if smarty:
             try:
-                duration_ms = int(m.group(1)) * 1000
-            except ValueError:
+                duration_ms = int(smarty.get("timelength") or 0)
+            except (TypeError, ValueError):
                 duration_ms = 0
+        if not duration_ms:
+            m = DURATION_RE.search(html)
+            if m:
+                try:
+                    duration_ms = int(m.group(1)) * 1000
+                except ValueError:
+                    duration_ms = 0
 
         if play_url and play_url.startswith("http"):
             return KugouInfo(

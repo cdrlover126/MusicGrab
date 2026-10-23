@@ -10,7 +10,7 @@
 |---|---|---|
 | 抖音 | `v.douyin.com/xxx` 分享口令、`www.douyin.com/video/{id}`、`/note/{id}`、`iesdouyin.com/share/video/{id}` | 可选配乐原曲 / 视频音轨 |
 | 快手 | `v.kuaishou.com/xxx` 短链、`www.kuaishou.com/short-video/{id}`、`*.chenzhongtech.com/fw/photo/{id}` | 取最高码率视频音轨；部分作品需 App/登录 |
-| 酷狗 | `www.kugou.com/mixsong/{id}.html`、`www.kugou.com/song/...`、带 `hash=` 的链接 | 抓取页面元数据 + 移动端播放接口取直链；**VIP/付费歌曲需登录**（`--cookies`/`--cookies-from-browser`） |
+| 酷狗 | `www.kugou.com/mixsong/{id}.html`、`www.kugou.com/song/#{id}`（新版分享页）、带 `hash=` 的链接 | 抓取页面 `dataFromSmarty` 元数据 + 移动端播放接口取直链；`/song/#{id}` 会自动归一化为 `/mixsong/{id}.html` 解析；**VIP/付费歌曲需登录**（`--cookies`/`--cookies-from-browser`） |
 
 ## 二、yt-dlp 通用引擎（1751 个 extractor，覆盖 1500+ 站点）
 
@@ -60,6 +60,7 @@
 | `https://m.ixigua.com/video/7310526900030407205` | yt-dlp | 失败：需 cookies（已提示解法） |
 | `https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV` | yt-dlp | 失败：仅注册用户（需 cookies） |
 | `https://www.kugou.com/mixsong/g56rmzfd.html` | 内置 | 通过 → MP3 6.8MB《…》（免费曲，192kbps） |
+| `https://www.kugou.com/song/#g5jy4e47` | 内置 | 通过 → MP3 5.4MB《前路有光》张杰（免费曲，192kbps） |
 | `https://www.kugou.com/mixsong/67ixk467.html` | 内置 | 失败：VIP/付费歌曲（`pay_type=3`，未登录不返回直链） |
 | `https://www.kugou.com/mixsong/5r7dnu63.html` | 内置 | 失败：VIP/付费歌曲（同上） |
 | YouTube / TikTok / X / Instagram 示例 | yt-dlp | 失败：本机无代理超时 |
