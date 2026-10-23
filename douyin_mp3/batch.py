@@ -16,6 +16,7 @@ from .cookies import CookieError
 from .downloader import DownloadError, download_with_retry
 from .generic import GenericParseError, download_generic_audio
 from .kuaishou import KuaishouClient, KuaishouParseError
+from .kugou import KugouClient, KugouParseError
 from .parser import (
     DouyinClient,
     DouyinParseError,
@@ -58,6 +59,7 @@ class BatchProcessor:
         self.ffmpeg_path = ffmpeg_path or options.ffmpeg_path
         self._cancel = threading.Event()
         self._kuaishou: KuaishouClient | None = None
+        self._kugou: KugouClient | None = None
         self.on_log: LogFn = lambda msg: None
         self.on_item_start: ItemStartFn = lambda idx, total, url: None
         self.on_item_done: ItemDoneFn = lambda result: None
@@ -71,6 +73,15 @@ class BatchProcessor:
                 cookies_from_browser=self.options.cookies_from_browser,
             )
         return self._kuaishou
+
+    def _kugou_client(self) -> KugouClient:
+        if self._kugou is None:
+            self._kugou = KugouClient(
+                proxy=self.options.proxy,
+                cookies_file=self.options.cookies_file,
+                cookies_from_browser=self.options.cookies_from_browser,
+            )
+        return self._kugou
 
     def cancel(self) -> None:
         self._cancel.set()
@@ -175,7 +186,7 @@ class BatchProcessor:
         tmp_src = work_dir / f"{index:03d}.bin"
         platform = classify_platform(url)
         use_builtin = options.use_builtin_parser
-        if not use_builtin and platform in ("douyin", "kuaishou"):
+        if not use_builtin and platform in ("douyin", "kuaishou", "kugou"):
             platform = "generic"
         try:
             def _cb(done: int, done_total: int) -> None:
@@ -243,6 +254,35 @@ class BatchProcessor:
                 duration = info.duration_ms / 1000 or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
+            elif platform == "kugou":
+                kugou_client = self._kugou_client()
+                info = None
+                last_error = None
+                for attempt in range(1, options.max_retries + 1):
+                    try:
+                        info = kugou_client.fetch_info(url)
+                        break
+                    except (KugouParseError, requests.RequestException) as exc:
+                        last_error = exc
+                        self._log(f"[{index}/{total}] 酷狗解析失败(第{attempt}次): {exc}")
+                        time.sleep(2 * attempt)
+                if info is None:
+                    return TaskResult(index, url, "failed", f"酷狗解析失败: {last_error}")
+
+                self._log(f"[{index}/{total}] 《{info.title}》 - {info.artist}")
+                download_with_retry(
+                    info.play_url,
+                    tmp_src,
+                    attempts=options.max_retries,
+                    session=kugou_client.session,
+                    progress=_cb,
+                    fallback_urls=[],
+                )
+                title, artist, comment = info.title, info.artist or "未知歌手", info.share_url
+                album = info.album or "酷狗音乐"
+                duration = info.duration_ms / 1000 or probe_duration_seconds(
+                    find_ffmpeg_cached(self.ffmpeg_path), tmp_src
+                )
             else:
                 from .parser import PLATFORM_LABELS
 
@@ -291,6 +331,7 @@ class BatchProcessor:
             DownloadError,
             DouyinParseError,
             KuaishouParseError,
+            KugouParseError,
             GenericParseError,
             CookieError,
             OSError,

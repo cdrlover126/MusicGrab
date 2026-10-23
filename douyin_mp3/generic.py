@@ -91,7 +91,7 @@ def download_generic_audio(
         import yt_dlp
     except ImportError as exc:
         raise GenericParseError(
-            "未安装 yt-dlp，无法处理抖音/快手以外的链接。请执行: pip install yt-dlp"
+            "未安装 yt-dlp，无法处理抖音/快手/酷狗以外的链接。请执行: pip install yt-dlp"
         ) from exc
 
     dest.parent.mkdir(parents=True, exist_ok=True)

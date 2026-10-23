@@ -56,8 +56,8 @@ AUDIO_SOURCE_LABELS = {
 
 ENGINE_CHOICES = ("auto", "douyin", "generic")
 ENGINE_LABELS = {
-    "auto": "自动（抖音/快手用内置解析器，其余走 yt-dlp）",
-    "douyin": "内置解析器（抖音/快手，无第三方依赖）",
+    "auto": "自动（抖音/快手/酷狗用内置解析器，其余走 yt-dlp）",
+    "douyin": "内置解析器（抖音/快手/酷狗，无第三方依赖）",
     "generic": "yt-dlp 通用引擎（可配合 cookies 处理需登录站点）",
 }
 

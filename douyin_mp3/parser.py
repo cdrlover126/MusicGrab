@@ -23,11 +23,13 @@ ROUTER_DATA_RE = re.compile(
 
 DOUYIN_DOMAINS = ("douyin.com", "iesdouyin.com", "douyinstatic.com")
 KUAISHOU_DOMAINS = ("kuaishou.com", "chenzhongtech.com", "gifshow.com")
+KUGOU_DOMAINS = ("kugou.com", "kgimg.com", "kugou.net")
 PLATFORM_LABELS = {
     "douyin": "抖音",
     "bilibili": "B站",
     "youtube": "YouTube",
     "kuaishou": "快手",
+    "kugou": "酷狗",
     "generic": "通用",
 }
 
@@ -38,6 +40,8 @@ def classify_platform(url: str) -> str:
         return "douyin"
     if any(host == d or host.endswith("." + d) for d in KUAISHOU_DOMAINS):
         return "kuaishou"
+    if any(host == d or host.endswith("." + d) for d in KUGOU_DOMAINS):
+        return "kugou"
     if "bilibili.com" in host or "b23.tv" in host:
         return "bilibili"
     if "youtube.com" in host or "youtu.be" in host:

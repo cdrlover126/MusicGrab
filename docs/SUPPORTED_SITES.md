@@ -1,6 +1,6 @@
 # 支持站点清单与实测结果
 
-- 版本：v1.2.0
+- 版本：v1.3.0
 - 实测环境：Windows + 本机直连（**无代理**），实测日期见仓库提交记录
 - 说明：**内置解析器**指本项目自研解析（无需 yt-dlp）；**通用引擎**指 yt-dlp
 
@@ -10,6 +10,7 @@
 |---|---|---|
 | 抖音 | `v.douyin.com/xxx` 分享口令、`www.douyin.com/video/{id}`、`/note/{id}`、`iesdouyin.com/share/video/{id}` | 可选配乐原曲 / 视频音轨 |
 | 快手 | `v.kuaishou.com/xxx` 短链、`www.kuaishou.com/short-video/{id}`、`*.chenzhongtech.com/fw/photo/{id}` | 取最高码率视频音轨；部分作品需 App/登录 |
+| 酷狗 | `www.kugou.com/mixsong/{id}.html`、`www.kugou.com/song/...`、带 `hash=` 的链接 | 抓取页面元数据 + 移动端播放接口取直链；**VIP/付费歌曲需登录**（`--cookies`/`--cookies-from-browser`） |
 
 ## 二、yt-dlp 通用引擎（1751 个 extractor，覆盖 1500+ 站点）
 
@@ -27,7 +28,8 @@
 | 优酷 / 爱奇艺 / 腾讯视频 / 芒果TV / 搜狐 / 央视网 | 支持 | 未逐条实测 | 视频站，可提取音轨 |
 | 酷我音乐 / 斗鱼 / 虎牙 / AcFun / 喜马拉雅 / 蜻蜓FM / 今日头条 / 百度视频 | 支持 | 未逐条实测 | — |
 | 快手 | **不支持** | — | yt-dlp 无 extractor，请用内置解析器 |
-| 酷狗 / 好看视频 / 咪咕视频 | **不支持** | — | yt-dlp 无 extractor |
+| 酷狗 | **不支持** | — | yt-dlp 无 extractor，请用内置解析器 |
+| 好看视频 / 咪咕视频 | **不支持** | — | yt-dlp 无 extractor |
 
 ### 境外平台
 
@@ -57,6 +59,9 @@
 | `https://v.kuaishou.com/nmqf0KDZ` | 内置 | 失败：页面无数据（作品需 App/登录） |
 | `https://m.ixigua.com/video/7310526900030407205` | yt-dlp | 失败：需 cookies（已提示解法） |
 | `https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV` | yt-dlp | 失败：仅注册用户（需 cookies） |
+| `https://www.kugou.com/mixsong/g56rmzfd.html` | 内置 | 通过 → MP3 6.8MB《…》（免费曲，192kbps） |
+| `https://www.kugou.com/mixsong/67ixk467.html` | 内置 | 失败：VIP/付费歌曲（`pay_type=3`，未登录不返回直链） |
+| `https://www.kugou.com/mixsong/5r7dnu63.html` | 内置 | 失败：VIP/付费歌曲（同上） |
 | YouTube / TikTok / X / Instagram 示例 | yt-dlp | 失败：本机无代理超时 |
 
 混合批量端到端（抖音 + 快手 + 微博 + B站）均成功产出 192kbps MP3，ID3v2.3 标签完整。

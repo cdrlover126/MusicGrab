@@ -141,7 +141,7 @@ def run_gui() -> int:
             title.setStyleSheet("font-size: 14px; font-weight: bold;")
             root.addWidget(title)
 
-            sub = QLabel("支持抖音、快手、B站、微博、网易云等，自动识别平台")
+            sub = QLabel("支持抖音、快手、酷狗、B站、微博、网易云等，自动识别平台")
             sub.setStyleSheet("color: #4b5563;")
             root.addWidget(sub)
 

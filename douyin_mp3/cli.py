@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="douyin-mp3",
         description=(
             "批量提取视频中的音乐/歌曲为车机可播放的 MP3"
-            "（抖音/快手用内置解析器，B站/YouTube/微博/网易云等站点走 yt-dlp 通用引擎）"
+            "（抖音/快手/酷狗用内置解析器，B站/YouTube/微博/网易云等站点走 yt-dlp 通用引擎）"
         ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert = sub.add_parser("convert", help="批量转换（命令行模式）")
     convert.add_argument(
-        "inputs", nargs="+", help="视频链接或包含链接的分享文本（抖音/快手/B站/微博/网易云等）"
+        "inputs", nargs="+", help="视频链接或包含链接的分享文本（抖音/快手/酷狗/B站/微博/网易云等）"
     )
     convert.add_argument(
         "-o",
@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--engine",
         choices=ENGINE_CHOICES,
         default="auto",
-        help="解析引擎: auto=抖音/快手用内置解析器, douyin=强制内置, generic=强制 yt-dlp",
+        help="解析引擎: auto=抖音/快手/酷狗用内置解析器, douyin=强制内置, generic=强制 yt-dlp",
     )
     convert.add_argument("--proxy", default=None, help="代理，如 http://127.0.0.1:7890")
     convert.add_argument(
