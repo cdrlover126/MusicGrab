@@ -14,6 +14,8 @@ from .cookies import load_requests_cookies
 URL_RE = re.compile(r"https?://[^\s<>\"'，。；！？]+", re.IGNORECASE)
 SHORT_LINK_RE = re.compile(r"(?:https?://)?v\.douyin\.com/([A-Za-z0-9_\-]+)", re.IGNORECASE)
 AWEME_ID_RE = re.compile(r"(?:video|note|slides)/(\d{10,})")
+# 网页版浏览视频时地址栏常见形式：?modal_id= / ?aweme_id=
+AWEME_ID_QUERY_RE = re.compile(r"[?&](?:modal_id|aweme_id|item_id)=(\d{10,})", re.IGNORECASE)
 RENDER_DATA_RE = re.compile(
     r'<script[^>]+id="RENDER_DATA"[^>]*>(.*?)</script>', re.DOTALL | re.IGNORECASE
 )
@@ -91,6 +93,9 @@ def extract_urls(text: str) -> list[str]:
 
 def extract_aweme_id(url: str) -> str | None:
     m = AWEME_ID_RE.search(url)
+    if m:
+        return m.group(1)
+    m = AWEME_ID_QUERY_RE.search(url)
     if m:
         return m.group(1)
     m = SHORT_LINK_RE.search(url)
@@ -205,28 +210,38 @@ class DouyinClient:
             "Referer": "https://www.douyin.com/",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-        resp = self.session.get(share_url, headers=headers, timeout=self.timeout)
-        resp.raise_for_status()
-        html = resp.text
 
-        payload: Any = None
-        m = RENDER_DATA_RE.search(html)
-        if m:
+        # 依次尝试分享页与网页版详情页，降低风控导致的失败率
+        candidates = [share_url, f"https://www.douyin.com/video/{aweme_id}"]
+        last_error = ""
+        for candidate in candidates:
             try:
-                payload = json.loads(unquote(m.group(1).strip()))
-            except json.JSONDecodeError:
-                payload = None
-        if payload is None:
-            m = ROUTER_DATA_RE.search(html)
+                resp = self.session.get(candidate, headers=headers, timeout=self.timeout)
+                resp.raise_for_status()
+            except requests.RequestException as exc:
+                last_error = str(exc)
+                continue
+
+            payload: Any = None
+            m = RENDER_DATA_RE.search(resp.text)
             if m:
                 try:
-                    payload = json.loads(m.group(1))
+                    payload = json.loads(unquote(m.group(1).strip()))
                 except json.JSONDecodeError:
                     payload = None
+            if payload is None:
+                m = ROUTER_DATA_RE.search(resp.text)
+                if m:
+                    try:
+                        payload = json.loads(m.group(1))
+                    except json.JSONDecodeError:
+                        payload = None
 
-        item_list = _find_item_list(payload) if payload is not None else None
-        if not item_list:
-            raise DouyinParseError(
-                f"页面结构未找到视频数据（可能被风控或页面已改版）: {share_url}"
-            )
-        return _parse_item(item_list[0], aweme_id, share_url)
+            item_list = _find_item_list(payload) if payload is not None else None
+            if item_list:
+                return _parse_item(item_list[0], aweme_id, share_url)
+            last_error = f"页面结构未找到视频数据: {candidate}"
+
+        raise DouyinParseError(
+            f"{last_error or '解析失败'}（可能被风控或页面已改版，可稍后重试或提供 cookies）"
+        )

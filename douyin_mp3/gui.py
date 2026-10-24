@@ -50,7 +50,7 @@ def run_gui() -> int:
             QScrollArea,
             QSizePolicy,
             QSpinBox,
-            QToolButton,
+            QTabWidget,
             QVBoxLayout,
             QWidget,
         )
@@ -81,55 +81,6 @@ def run_gui() -> int:
         def stop(self) -> None:
             self.processor.cancel()
 
-    class CollapsibleBox(QWidget):
-        def __init__(self, title: str, parent: QWidget | None = None) -> None:
-            super().__init__(parent)
-            self.toggle_button = QToolButton()
-            self.toggle_button.setStyleSheet("QToolButton { border: none; font-weight: bold; text-align: left; padding: 4px; }")
-            self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-            self.toggle_button.setArrowType(Qt.RightArrow)
-            self._collapsed_text = title
-            self._expanded_text = title.replace("点击展开", "点击收起")
-            self.toggle_button.setText(self._collapsed_text)
-            self.toggle_button.setCheckable(True)
-            self.toggle_button.setChecked(False)
-            self.toggle_button.clicked.connect(self.on_toggled)
-
-            self.content_area = QFrame()
-            self.content_area.setFrameShape(QFrame.StyledPanel)
-            self.content_area.setStyleSheet("QFrame { background: transparent; }")
-            self.content_area.setVisible(False)
-
-            lay = QVBoxLayout(self)
-            lay.setContentsMargins(0, 0, 0, 0)
-            lay.setSpacing(4)
-            lay.addWidget(self.toggle_button)
-            lay.addWidget(self.content_area)
-
-            self.content_layout = QGridLayout(self.content_area)
-            self.content_layout.setContentsMargins(18, 16, 18, 16)
-            self.content_layout.setHorizontalSpacing(16)
-            self.content_layout.setVerticalSpacing(14)
-            self.content_layout.setColumnMinimumWidth(0, 116)
-            self.content_layout.setColumnStretch(1, 1)
-
-        def on_toggled(self) -> None:
-            checked = self.toggle_button.isChecked()
-            self.content_area.setVisible(checked)
-            self.toggle_button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
-            self.toggle_button.setText(self._expanded_text if checked else self._collapsed_text)
-
-        def add_row(self, row: int, label: str, widget: QWidget) -> None:
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #374151;")
-            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            lbl.setMinimumWidth(110)
-            self.content_layout.addWidget(lbl, row, 0)
-            self.content_layout.addWidget(widget, row, 1)
-
-        def add_widget(self, widget: QWidget, row: int, col: int, row_span: int = 1, col_span: int = 1) -> None:
-            self.content_layout.addWidget(widget, row, col, row_span, col_span)
-
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
@@ -137,21 +88,33 @@ def run_gui() -> int:
             self.resize(900, 700)
             self.setMinimumSize(820, 560)
             self.worker: Worker | None = None
-            self._log_visible = False
 
             self.setStyleSheet(
                 """
                 QMainWindow { background: #f7f7f9; }
                 QPlainTextEdit { background: #ffffff; border: 1px solid #d8d8e0; border-radius: 6px; padding: 8px; }
-                QLineEdit, QComboBox { background: #ffffff; border: 1px solid #d8d8e0; border-radius: 5px; padding: 7px 9px; min-height: 26px; }
-                QLineEdit:focus, QComboBox:focus { border: 1px solid #2563eb; }
-                QSpinBox { background: #ffffff; border: 1px solid #d8d8e0; border-radius: 5px; padding: 7px 0px 7px 9px; min-height: 26px; }
-                QSpinBox:focus { border: 1px solid #2563eb; }
+                QLineEdit, QComboBox, QPushButton { min-height: 30px; }
+                QSpinBox { min-height: 26px; }
+                QLineEdit, QComboBox { background: #ffffff; border: 1px solid #d8d8e0; border-radius: 5px; padding: 0px 9px; }
+                QSpinBox { background: #ffffff; border: 1px solid #d8d8e0; border-radius: 5px; padding: 0px 0px 0px 9px; }
+                QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #2563eb; }
                 QComboBox::drop-down { border: none; width: 22px; }
-                QPushButton { background: #2563eb; color: white; border: none; border-radius: 5px; padding: 8px 18px; }
+                QSpinBox::up-button { height: 13px; }
+                QSpinBox::down-button { height: 13px; }
+                QPushButton { background: #2563eb; color: white; border: 1px solid transparent; border-radius: 5px; padding: 0px 20px; }
                 QPushButton:hover { background: #1d4ed8; }
                 QPushButton:disabled { background: #9ca3af; color: #f3f4f6; }
-                QToolButton { color: #1f2937; }
+                QPushButton[secondary="true"] { background: #ffffff; color: #374151; border-color: #d8d8e0; }
+                QPushButton[secondary="true"]:hover { background: #f3f4f6; border-color: #9ca3af; }
+                QPushButton[danger="true"] { background: #dc2626; }
+                QPushButton[danger="true"]:hover { background: #b91c1c; }
+                QPushButton[danger="true"]:disabled { background: #9ca3af; color: #f3f4f6; }
+                QTabWidget { background: #ffffff; }
+                QTabWidget::pane { border: 1px solid #d8d8e0; border-top: none; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; background: #ffffff; top: -1px; }
+                QTabBar { background: #ffffff; }
+                QTabBar::tab { background: #ececf2; color: #4b5563; border: 1px solid #d8d8e0; border-bottom: none; border-top-left-radius: 6px; border-top-right-radius: 6px; padding: 7px 22px; margin-right: 3px; }
+                QTabBar::tab:selected { background: #ffffff; color: #111827; font-weight: bold; }
+                QTabBar::tab:hover:!selected { background: #f3f4f6; }
                 QProgressBar { border: 1px solid #d8d8e0; border-radius: 5px; text-align: center; background: #ffffff; height: 20px; }
                 QProgressBar::chunk { background: #22c55e; border-radius: 5px; }
                 QLabel { color: #1f2937; }
@@ -159,22 +122,26 @@ def run_gui() -> int:
             )
 
             root = QVBoxLayout()
-            root.setContentsMargins(18, 16, 18, 14)
+            root.setContentsMargins(18, 16, 18, 12)
             root.setSpacing(10)
+
+            body = QVBoxLayout()
+            body.setContentsMargins(0, 0, 0, 0)
+            body.setSpacing(10)
 
             title = QLabel("批量提取各平台音轨，转为车机可播放的 MP3")
             title.setStyleSheet("font-size: 15px; font-weight: bold;")
             title_policy = title.sizePolicy()
             title_policy.setVerticalPolicy(QSizePolicy.Fixed)
             title.setSizePolicy(title_policy)
-            root.addWidget(title)
+            body.addWidget(title)
 
             sub = QLabel("支持抖音、快手、酷狗、B站、微博、网易云等 1500+ 站点，自动识别平台与登录态")
             sub.setStyleSheet("color: #4b5563;")
             sub_policy = sub.sizePolicy()
             sub_policy.setVerticalPolicy(QSizePolicy.Fixed)
             sub.setSizePolicy(sub_policy)
-            root.addWidget(sub)
+            body.addWidget(sub)
 
             self.links_edit = QPlainTextEdit()
             self.links_edit.setPlaceholderText(
@@ -184,69 +151,66 @@ def run_gui() -> int:
                 "https://www.kugou.com/mixsong/xxxxxx.html\n"
                 "https://www.bilibili.com/video/BVxxxx"
             )
-            self.links_edit.setMinimumHeight(150)
-            self.links_edit.setMaximumHeight(190)
-            links_policy = self.links_edit.sizePolicy()
-            links_policy.setVerticalPolicy(QSizePolicy.Fixed)
-            self.links_edit.setSizePolicy(links_policy)
-            root.addWidget(self.links_edit)
+            self.links_edit.setFixedHeight(150)
+            body.addWidget(self.links_edit)
 
-            self.adv_box = CollapsibleBox("输出设置（点击展开）")
-            adv = self.adv_box
-
-            adv.add_row(0, "音质", self._make_quality_row())
-            adv.add_row(1, "音频来源", self._make_source_row())
-            adv.add_row(2, "解析引擎", self._make_engine_row())
-            adv.add_row(3, "条数间隔（秒）", self._make_delay_row())
-            adv.add_row(4, "代理", self._make_proxy_row())
-            adv.add_row(5, "Cookies 文件", self._make_cookies_row())
-            adv.add_row(6, "读取浏览器 Cookies", self._make_browser_row())
-            adv.add_row(7, "输出目录", self._make_dir_row())
-
-            root.addWidget(self.adv_box)
-
+            # 主操作按钮置于选项页之上
             btn_row = QHBoxLayout()
-            btn_row.setSpacing(8)
+            btn_row.setSpacing(10)
             self.start_btn = QPushButton("开始转换")
-            self.start_btn.setMinimumHeight(34)
+            self.start_btn.setMinimumWidth(112)
             self.start_btn.clicked.connect(self.start)
             self.stop_btn = QPushButton("停止")
-            self.stop_btn.setMinimumHeight(34)
-            self.stop_btn.setStyleSheet("QPushButton { background: #dc2626; } QPushButton:hover { background: #b91c1c; } QPushButton:disabled { background: #9ca3af; }")
+            self.stop_btn.setMinimumWidth(88)
+            self.stop_btn.setProperty("danger", True)
             self.stop_btn.setEnabled(False)
             self.stop_btn.clicked.connect(self.stop)
-            self.log_toggle = QPushButton("显示详情日志")
-            self.log_toggle.setMinimumHeight(34)
-            self.log_toggle.setStyleSheet("QPushButton { background: #ffffff; color: #374151; border: 1px solid #d8d8e0; } QPushButton:hover { background: #f3f4f6; border-color: #9ca3af; }")
-            self.log_toggle.clicked.connect(self.toggle_log)
-
             btn_row.addWidget(self.start_btn)
             btn_row.addWidget(self.stop_btn)
-            btn_row.addStretch()
-            btn_row.addWidget(self.log_toggle)
-            root.addLayout(btn_row)
+            btn_row.addStretch(1)
+            self.hint_label = QLabel("就绪")
+            self.hint_label.setStyleSheet("color: #6b7280;")
+            btn_row.addWidget(self.hint_label)
+            body.addLayout(btn_row)
 
-            self.progress = QProgressBar()
-            self.progress.setRange(0, 100)
-            self.progress.setValue(0)
-            self.progress.setFormat("%p%")
-            self.progress.setTextVisible(True)
-            self.progress.setMinimumHeight(20)
-            root.addWidget(self.progress)
+            # 「输出设置」与「详情日志」以选项页切换
+            self.tabs = QTabWidget()
+            self.tabs.setDocumentMode(True)
 
+            self.settings_page = QWidget()
+            self.settings_grid = QGridLayout(self.settings_page)
+            self.settings_grid.setContentsMargins(16, 14, 16, 14)
+            self.settings_grid.setHorizontalSpacing(14)
+            self.settings_grid.setVerticalSpacing(10)
+            self.settings_grid.setColumnMinimumWidth(0, 112)
+            self.settings_grid.setColumnStretch(1, 1)
+            self._add_setting(0, "音质", self._make_quality_row())
+            self._add_setting(1, "音频来源", self._make_source_row())
+            self._add_setting(2, "解析引擎", self._make_engine_row())
+            self._add_setting(3, "条数间隔（秒）", self._make_delay_row())
+            self._add_setting(4, "代理", self._make_proxy_row())
+            self._add_setting(5, "Cookies 文件", self._make_cookies_row())
+            self._add_setting(6, "读取浏览器 Cookies", self._make_browser_row())
+            self._add_setting(7, "输出目录", self._make_dir_row())
+            self.tabs.addTab(self.settings_page, "输出设置")
+
+            self.log_page = QWidget()
+            log_layout = QVBoxLayout(self.log_page)
+            log_layout.setContentsMargins(8, 8, 8, 8)
             self.log_edit = QPlainTextEdit()
             self.log_edit.setReadOnly(True)
+            self.log_edit.setPlaceholderText("转换过程中的详细信息会显示在这里")
             font = QFont("Consolas", 9)
             font.setStyleHint(QFont.StyleHint.Monospace)
             self.log_edit.setFont(font)
-            self.log_edit.setMinimumHeight(140)
-            self.log_edit.setVisible(False)
-            root.addWidget(self.log_edit)
+            log_layout.addWidget(self.log_edit)
+            self.tabs.addTab(self.log_page, "详情日志")
+            body.addWidget(self.tabs)
 
             central = QWidget()
-            central.setLayout(root)
+            central.setLayout(body)
+            self._content = central
 
-            # 用滚动区承载内容，展开「输出设置」或显示日志时不会被裁切
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.NoFrame)
@@ -256,19 +220,41 @@ def run_gui() -> int:
                 "QScrollArea > QWidget > QWidget { background: #f7f7f9; }"
             )
             scroll.setWidget(central)
-            self.setCentralWidget(scroll)
-            self._content = central
+            root.addWidget(scroll, 1)
 
-            adv.toggle_button.clicked.connect(self._sync_window_height)
+            self.progress = QProgressBar()
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.progress.setFormat("%p%")
+            self.progress.setTextVisible(True)
+            self.progress.setFixedHeight(20)
+            root.addWidget(self.progress)
 
-        def _sync_window_height(self) -> None:
-            """展开/收起「输出设置」时自动调整窗口高度，保证内容完整可见。"""
-            self._content.layout().activate()
-            needed = self._content.sizeHint().height() + 56
+            shell = QWidget()
+            shell.setLayout(root)
+            self.setCentralWidget(shell)
+            self._fit_tabs()
+
+        def _add_setting(self, row: int, label: str, widget: QWidget) -> None:
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #374151;")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setMinimumWidth(106)
+            self.settings_grid.addWidget(lbl, row, 0)
+            self.settings_grid.addWidget(widget, row, 1)
+
+        def _fit_tabs(self) -> None:
+            """依据设置页实际高度固定选项页高度，并让窗口一次容纳全部内容。"""
+            self.settings_page.adjustSize()
+            page_h = max(self.settings_page.sizeHint().height(), 320)
+            self.tabs.setFixedHeight(page_h + 40)
+
+            self._content.adjustSize()
+            needed = self._content.sizeHint().height() + 70
             screen = QApplication.primaryScreen()
             limit = screen.availableGeometry().height() - 80 if screen else needed
             target = max(self.minimumHeight(), min(needed, limit))
-            if abs(target - self.height()) > 8:
+            if target > self.height():
                 self.resize(self.width(), target)
 
         def _make_quality_row(self) -> QWidget:
@@ -348,9 +334,7 @@ def run_gui() -> int:
             self.cookies_edit.setPlaceholderText("Netscape 格式 cookies.txt（留空）")
             btn = QPushButton("浏览…")
             btn.setFixedWidth(88)
-            btn.setStyleSheet(
-                "QPushButton { background: #ffffff; color: #374151; border: 1px solid #d8d8e0; } QPushButton:hover { background: #f3f4f6; border-color: #9ca3af; }"
-            )
+            btn.setProperty("secondary", True)
             btn.clicked.connect(self.pick_cookies)
             h.addWidget(self.cookies_edit, 1)
             h.addWidget(btn, 0)
@@ -372,20 +356,11 @@ def run_gui() -> int:
             self.dir_edit.setToolTip("MP3 输出目录，可直接粘贴路径")
             btn = QPushButton("浏览…")
             btn.setFixedWidth(88)
-            btn.setStyleSheet(
-                "QPushButton { background: #ffffff; color: #374151; border: 1px solid #d8d8e0; } QPushButton:hover { background: #f3f4f6; border-color: #9ca3af; }"
-            )
+            btn.setProperty("secondary", True)
             btn.clicked.connect(self.pick_dir)
             h.addWidget(self.dir_edit, 1)
             h.addWidget(btn, 0)
             return w
-
-        def toggle_log(self) -> None:
-            self._log_visible = not self._log_visible
-            self.log_edit.setVisible(self._log_visible)
-            self.log_toggle.setText("隐藏详情日志" if self._log_visible else "显示详情日志")
-            if self._log_visible and self.log_edit.toPlainText():
-                self.log_edit.verticalScrollBar().setValue(self.log_edit.verticalScrollBar().maximum())
 
         def pick_dir(self) -> None:
             chosen = QFileDialog.getExistingDirectory(self, "选择输出目录", self.dir_edit.text())
@@ -401,8 +376,7 @@ def run_gui() -> int:
 
         def append_log(self, msg: str) -> None:
             self.log_edit.appendPlainText(msg)
-            if self._log_visible:
-                self.log_edit.verticalScrollBar().setValue(self.log_edit.verticalScrollBar().maximum())
+            self.log_edit.verticalScrollBar().setValue(self.log_edit.verticalScrollBar().maximum())
 
         def start(self) -> None:
             lines = [
@@ -435,11 +409,12 @@ def run_gui() -> int:
             self.worker.finished_all.connect(self._on_finished)
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
-            self.adv_box.setEnabled(False)
+            self.tabs.setEnabled(False)
             self.links_edit.setReadOnly(True)
             self.progress.setRange(0, len(lines))
             self.progress.setValue(0)
             self.progress.setFormat(f"%p%（{len(lines)} 条）")
+            self.hint_label.setText(f"正在转换 {len(lines)} 条…")
             self.worker.start()
 
         def _on_item_start(self, index: int, total: int, _url: str) -> None:
@@ -452,6 +427,7 @@ def run_gui() -> int:
                 self.append_log("正在停止…（等待当前任务结束）")
                 self.worker.stop()
                 self.stop_btn.setEnabled(False)
+                self.hint_label.setText("正在停止…")
 
         def _on_item_done(self, result: object) -> None:
             status = getattr(result, "status", "")
@@ -461,7 +437,7 @@ def run_gui() -> int:
         def _on_finished(self, summary: object) -> None:
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
-            self.adv_box.setEnabled(True)
+            self.tabs.setEnabled(True)
             self.links_edit.setReadOnly(False)
             ok = getattr(summary, "succeeded", 0)
             fail = getattr(summary, "failed", 0)
@@ -470,6 +446,7 @@ def run_gui() -> int:
                 self.progress.setRange(0, total)
                 self.progress.setValue(total)
             self.progress.setFormat(f"完成：成功 {ok} / 失败 {fail} · %p%")
+            self.hint_label.setText(f"完成：成功 {ok} / 失败 {fail}")
             QMessageBox.information(self, APP_NAME, f"转换完成\n成功：{ok}\n失败：{fail}")
 
     app = QApplication(sys.argv)

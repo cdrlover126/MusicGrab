@@ -11,7 +11,7 @@
 
 | 平台 | 引擎 | 说明 |
 |---|---|---|
-| 抖音 | 内置解析器（推荐） | 支持分享口令整段粘贴、`v.douyin.com`、`www.douyin.com/video/...` 等，可选配乐原曲/视频音轨 |
+| 抖音 | 内置解析器（推荐） | 支持分享口令整段粘贴、`v.douyin.com` 短链、`www.douyin.com/video/...`、`?modal_id=...` 等，可选配乐原曲/视频音轨 |
 | 快手 | 内置解析器（推荐） | 支持 `v.kuaishou.com` 短链，自动取最高码率音轨。部分作品需登录或 App 环境 |
 | 酷狗 | 内置解析器（推荐） | 支持 `www.kugou.com/mixsong/...`、`www.kugou.com/song/...`、带 `hash=` 的链接等，自动提取可用音频并写入 ID3 标签。**VIP/付费歌曲需登录**（配合 `--cookies-from-browser` 或 `cookies.txt`）；接口可能随酷狗改版而失效 |
 | B 站、微博、网易云音乐、优酷、爱奇艺、腾讯视频、芒果 TV、AcFun 等 | yt-dlp 通用引擎 | 大多数可直接提取音轨并打上 ID3 标签 |
@@ -118,6 +118,7 @@ douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xx
 | 问题 | 原因 | 解决方案 |
 |---|---|---|
 | **解析失败 / “页面无数据”** | 抖音/快手风控、作品已删除、或需要登录环境 | 稍后重试、换网络、使用 `--engine auto` 让程序自动切换；部分快手作品仅 App 可见暂时无法解析 |
+| **抖音链接怎么复制** | 抖音未提供固定的分享链接格式 | 以下形式**均可直接粘贴**，无需特意点「转发 → 复制链接」：① 浏览器地址栏的 `https://www.douyin.com/video/{id}`；② 网页版浏览时的 `https://www.douyin.com/discover?modal_id={id}`；③ 分享面板「复制链接」得到的 `https://v.douyin.com/xxxxx/`；④「复制口令」的整段文字 |
 | **“需 cookies” / 登录相关报错** | 西瓜、小红书、QQ 音乐等站点需登录态 | 完全退出浏览器后用 `--cookies-from-browser <浏览器名>`，或导出 Netscape 格式 `cookies.txt` 并用 `--cookies` 指定 |
 | **酷狗提示“VIP/付费歌曲”** | 该曲目为酷狗 VIP/付费内容，未登录不返回播放地址 | 登录酷狗后导出 cookies，用 `--cookies-from-browser edge` 或 `--cookies cookies.txt` 重试 |
 | **境外站点超时（YouTube/TikTok/X/Instagram）** | 本机直连境外网络不可用 | 配置代理（如 Clash/V2rayN）后设置 `--proxy http://127.0.0.1:7890`（以实际端口为准） |

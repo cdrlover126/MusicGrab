@@ -64,6 +64,21 @@ def test_extract_aweme_id():
     assert extract_aweme_id("https://v.douyin.com/iAbCdEf/") is None
 
 
+def test_extract_aweme_id_from_query_param():
+    assert extract_aweme_id("https://www.douyin.com/discover?modal_id=7341234567890123456") == "7341234567890123456"
+    assert extract_aweme_id("https://www.douyin.com/?aweme_id=7341234567890123456") == "7341234567890123456"
+
+
+def test_extract_urls_from_share_text_variants():
+    # 分享面板「复制链接」「复制口令」得到的文本都能提取到链接
+    for text in (
+        "https://v.douyin.com/iAbCdEf/",
+        "https://v.douyin.com/iAbCdEf/ 复制打开抖音，看看【某人的作品】",
+        "7.92 复制打开抖音，看看【某人的作品】 https://v.douyin.com/iAbCdEf/  ",
+    ):
+        assert extract_urls(text) == ["https://v.douyin.com/iAbCdEf/"]
+
+
 def test_collect_links_via_processor():
     lines = ["口令A https://v.douyin.com/xyz789/ 结尾", "https://v.douyin.com/xyz789/", "无链接"]
     links = BatchProcessor.collect_links(lines)
