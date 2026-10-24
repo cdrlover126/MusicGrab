@@ -8,6 +8,7 @@ dist/
 venv/
 .pytest_cache/
 *.spec.bak
+packaging/icon_preview.png
 *.mp3
 *.part
 .DS_Store
