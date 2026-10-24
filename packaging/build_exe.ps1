@@ -8,10 +8,11 @@ Write-Host "[1/4] 生成图标..."
 python packaging\make_icons.py
 
 Write-Host "[2/4] PyInstaller 打包..."
-pyinstaller --noconfirm --clean `
+python -m PyInstaller --noconfirm --clean `
   --onefile --windowed `
   --name DouyinMP3 `
   --icon assets\icon.ico `
+  --add-data "assets\icon.png;assets" `
   --version-file packaging\version_info.txt `
   --collect-binaries imageio_ffmpeg `
   --collect-all yt_dlp `

@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_dynamic_libs
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('assets/icon.png', 'assets')]
 binaries = []
 hiddenimports = ['douyin_mp3', 'douyin_mp3.gui', 'mutagen.id3']
 binaries += collect_dynamic_libs('imageio_ffmpeg')

@@ -16,6 +16,19 @@ from .config import (
 )
 
 
+def _icon_path() -> Path | None:
+    """定位应用图标（PNG），兼容源码运行与 PyInstaller 打包后的运行环境。"""
+    candidates: list[Path] = []
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        candidates.append(Path(base) / "assets" / "icon.png")
+    candidates.append(Path(__file__).resolve().parents[1] / "assets" / "icon.png")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
 def run_gui() -> int:
     try:
         from PySide6.QtCore import Qt, QThread, Signal
@@ -381,6 +394,15 @@ def run_gui() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    icon_file = _icon_path()
+    if icon_file is not None:
+        from PySide6.QtGui import QIcon
+
+        app.setWindowIcon(QIcon(str(icon_file)))
     window = MainWindow()
+    if icon_file is not None:
+        from PySide6.QtGui import QIcon
+
+        window.setWindowIcon(QIcon(str(icon_file)))
     window.show()
     return app.exec()
