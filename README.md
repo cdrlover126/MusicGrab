@@ -1,6 +1,6 @@
-# DouyinMP3 — 视频音乐批量转 MP3（抖音 / 快手 / 酷狗 / B站 / 微博 / 网易云 等）
+# 乐取 MusicGrab — 多平台音轨批量提取转 MP3（抖音 / 快手 / 酷狗 / B站 / 微博 / 网易云 等）
 
-批量粘贴视频分享口令或链接，自动识别平台并提取其中的音轨，转换为**车机系统可直接播放**的 MP3。
+批量粘贴视频或音乐分享链接，自动识别平台并提取其中的音轨，转换为**车机系统可直接播放**的 MP3。
 
 - **车机友好**：MP3、ID3v2.3 标签（歌名/歌手/专辑/来源注释）、44.1kHz 双声道、码率可调
 - **批量处理**：一次粘贴多条，自动识别平台并排队转换
@@ -36,7 +36,7 @@
 ## 3. 环境准备
 
 ### 方式 A：直接使用成品（最省事）
-如果已拿到 `dist\DouyinMP3.exe`，双击即可运行，无需安装 Python 环境。
+如果已拿到 `dist\MusicGrab.exe`，双击即可运行，无需安装 Python 环境。
 
 ### 方式 B：从源码运行
 需要 Python 3.10+。
@@ -67,7 +67,7 @@ python -m douyin_mp3
 # 安装包方式（pip install -e . 后）
 douyin-mp3
 # 或
-DouyinMP3
+乐取 MusicGrab
 ```
 
 界面要点：
@@ -105,7 +105,7 @@ douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xx
 | `-q, --quality` | `192` | `128`/`192`/`256`/`320` 或 `32-320` 任意整数 |
 | `-s, --source` | `auto` | `auto`/`video`/`music`（仅抖音内置解析器生效） |
 | `--engine` | `auto` | `auto`（智能选择）/`douyin`（强制内置：抖音、快手）/`generic`（强制 yt-dlp） |
-| `-o, --output` | `~/Music/DouyinMP3` | 输出目录（会自动创建） |
+| `-o, --output` | `~/Music/MusicGrab` | 输出目录（会自动创建） |
 | `--proxy` | 空 | 代理地址，如 `http://127.0.0.1:7890`、`socks5://127.0.0.1:7891` |
 | `--cookies` | 空 | `cookies.txt` 路径（需为 Netscape 格式） |
 | `--cookies-from-browser` | 空 | 从浏览器提取 cookies：`edge`、`chrome`、`firefox`、`chromium`、`brave`、`opera`、`vivaldi` 等 |
@@ -141,8 +141,8 @@ powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ```
 
 产物：
-- `dist\DouyinMP3.exe` — 单文件、无控制台、内置图标和版本信息（约 100MB）
-- `dist\DouyinMP3_*.msix`（如需）— Microsoft Store/侧载用的 MSIX 安装包
+- `dist\MusicGrab.exe` — 单文件、无控制台、内置图标和版本信息（约 100MB）
+- `dist\MusicGrab_*.msix`（如需）— Microsoft Store/侧载用的 MSIX 安装包
 
 打包细节见 `packaging/` 目录（`build_exe.ps1`、`version_info.txt`、`msix/AppxManifest.xml`）。
 

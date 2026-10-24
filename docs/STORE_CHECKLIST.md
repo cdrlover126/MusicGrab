@@ -9,14 +9,14 @@
 - [x] 提供开源许可（MIT LICENSE）
 
 ## 打包与标识
-- [x] Identity: `com.cdrlover.douyinmp3`
+- [x] Identity: `com.cdrlover.musicgrab`
 - [x] Publisher: `CN=cdrlover`（提交 Partner Center 后需与账户中的证书主体一致）
 - [x] MSIX 清单：packaging/msix/AppxManifest.xml
 - [x] 能力声明仅 `internetClient` + `runFullTrust`（桌面桥信任调用）
 
 ## 提交 Partner Center 前需要人工完成的事项
 1. 注册 Microsoft Partner Center 账户（个人开发者 $19 一次性注册费）
-2. 创建应用包名称（Name 一旦创建不可更改，建议先确认 `com.cdrlover.douyinmp3`）
+2. 创建应用包名称（Name 一旦创建不可更改，建议先确认 `com.cdrlover.musicgrab`）
 3. 使用账户下发的 Publisher 证书替换 `CN=cdrlover`，重新打包 MSIX
 4. 准备商店素材：
    - 应用截图 1280×768 至少 4 张（含主界面、转换过程、结果示例）
@@ -34,5 +34,5 @@ pip install -r requirements.txt pyinstaller
 powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ```
 产物：
-- `dist\DouyinMP3.exe` — 单文件应用，可直接分发
-- `dist\DouyinMP3_1.0.0.0_x64.msix` — 商店/侧载安装包（需 SDK）
+- `dist\MusicGrab.exe` — 单文件应用，可直接分发
+- `dist\MusicGrab_1.0.0.0_x64.msix` — 商店/侧载安装包（需 SDK）

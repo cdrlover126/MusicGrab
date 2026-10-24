@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "douyin-mp3"
-version = "1.2.0"
-description = "批量提取抖音视频音乐为车机可播放 MP3 的桌面应用"
+version = "1.4.0"
+description = "乐取 MusicGrab：多平台音轨批量提取转车机可播放 MP3 的桌面应用"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "cdrlover" }]
-keywords = ["douyin", "mp3", "audio", "ffmpeg", "music"]
+keywords = ["music", "mp3", "audio", "ffmpeg", "douyin", "kugou", "car-audio"]
 dependencies = [
     "requests>=2.31",
     "mutagen>=1.47",
@@ -26,7 +26,7 @@ dev = ["pytest>=8", "pyinstaller>=6"]
 douyin-mp3 = "douyin_mp3.cli:main"
 
 [project.gui-scripts]
-DouyinMP3 = "douyin_mp3.app:run"
+MusicGrab = "douyin_mp3.app:run"
 
 [tool.setuptools.packages.find]
 include = ["douyin_mp3*"]

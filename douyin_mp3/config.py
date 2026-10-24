@@ -11,7 +11,7 @@ SAMPLE_RATE = 44100
 CHANNELS = 2
 ID3_VERSION = 3
 
-DEFAULT_OUTPUT_DIR = Path.home() / "Music" / "DouyinMP3"
+DEFAULT_OUTPUT_DIR = Path.home() / "Music" / "MusicGrab"
 TEMP_DIR_NAME = ".douyin_mp3_tmp"
 
 MOBILE_UA = (

@@ -3,10 +3,10 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $stage = Join-Path $root "build\msix_stage"
-$pkg = Join-Path $root "dist\DouyinMP3_1.0.0.0_x64.msix"
+$pkg = Join-Path $root "dist\MusicGrab_1.0.0.0_x64.msix"
 
-if (-not (Test-Path (Join-Path $root "dist\DouyinMP3.exe"))) {
-  throw "请先运行 packaging\build_exe.ps1 生成 dist\DouyinMP3.exe"
+if (-not (Test-Path (Join-Path $root "dist\MusicGrab.exe"))) {
+  throw "请先运行 packaging\build_exe.ps1 生成 dist\MusicGrab.exe"
 }
 
 # 查找 MakeAppx
@@ -24,7 +24,7 @@ if (-not $makeappx) {
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path "$stage\assets" -Force | Out-Null
 
-Copy-Item (Join-Path $root "dist\DouyinMP3.exe") $stage
+Copy-Item (Join-Path $root "dist\MusicGrab.exe") $stage
 Copy-Item (Join-Path $PSScriptRoot "AppxManifest.xml") $stage
 Copy-Item (Join-Path $PSScriptRoot "*.png") "$stage\assets"
 # SplashScreen 单独复制

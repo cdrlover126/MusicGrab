@@ -10,7 +10,7 @@ python packaging\make_icons.py
 Write-Host "[2/4] PyInstaller 打包..."
 python -m PyInstaller --noconfirm --clean `
   --onefile --windowed `
-  --name DouyinMP3 `
+  --name MusicGrab `
   --icon assets\icon.ico `
   --add-data "assets\icon.png;assets" `
   --version-file packaging\version_info.txt `
@@ -21,11 +21,11 @@ python -m PyInstaller --noconfirm --clean `
   --hidden-import mutagen.id3 `
   douyin_mp3\app.py
 
-if (Test-Path "dist\DouyinMP3.exe") {
-  $size = (Get-Item "dist\DouyinMP3.exe").Length / 1MB
-  Write-Host ("[3/4] 生成成功: dist\DouyinMP3.exe ({0:N1} MB)" -f $size)
+if (Test-Path "dist\MusicGrab.exe") {
+  $size = (Get-Item "dist\MusicGrab.exe").Length / 1MB
+  Write-Host ("[3/4] 生成成功: dist\MusicGrab.exe ({0:N1} MB)" -f $size)
 } else {
-  throw "打包失败，未生成 dist\DouyinMP3.exe"
+  throw "打包失败，未生成 dist\MusicGrab.exe"
 }
 
 Write-Host "[4/4] 可选：构建 MSIX 应用商店安装包..."
