@@ -1,8 +1,8 @@
-﻿# UTF-8
+# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 4, 0, 0),
-    prodvers=(1, 4, 0, 0),
+    filevers=(1, 5, 0, 0),
+    prodvers=(1, 5, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -18,12 +18,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'cdrlover'),
             StringStruct('FileDescription', '乐取 MusicGrab - 多平台音轨批量提取转MP3'),
-            StringStruct('FileVersion', '1.4.0.0'),
+            StringStruct('FileVersion', '1.5.0.0'),
             StringStruct('InternalName', 'MusicGrab'),
             StringStruct('LegalCopyright', 'MIT License. Copyright (c) 2026 cdrlover.'),
             StringStruct('OriginalFilename', 'MusicGrab.exe'),
             StringStruct('ProductName', '乐取 MusicGrab'),
-            StringStruct('ProductVersion', '1.4.0.0')
+            StringStruct('ProductVersion', '1.5.0.0')
           ]
         )
       ]

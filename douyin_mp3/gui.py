@@ -5,15 +5,19 @@ from pathlib import Path
 
 from .batch import BatchProcessor
 from .config import (
+    AUDIO_EXTENSIONS,
     AUDIO_SOURCE_CHOICES,
     AUDIO_SOURCE_LABELS,
     COOKIE_BROWSER_CHOICES,
     DEFAULT_OUTPUT_DIR,
     ENGINE_CHOICES,
     ENGINE_LABELS,
+    OUTPUT_FORMATS,
     QUALITY_PRESETS,
+    VIDEO_EXTENSIONS,
     ConvertOptions,
 )
+from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 
 
 def _icon_path() -> Path | None:
@@ -152,7 +156,56 @@ def run_gui() -> int:
                 "https://www.bilibili.com/video/BVxxxx"
             )
             self.links_edit.setFixedHeight(150)
+            self.links_edit.setAcceptDrops(True)
             body.addWidget(self.links_edit)
+
+            # 链接区下方：常驻按钮行（添加本地文件 / 清空）
+            file_row = QHBoxLayout()
+            file_row.setSpacing(10)
+            add_file_btn = QPushButton("添加本地文件…")
+            add_file_btn.setProperty("secondary", True)
+            add_file_btn.setMinimumWidth(126)
+            add_file_btn.clicked.connect(self.pick_local_files)
+            clear_btn = QPushButton("清空")
+            clear_btn.setProperty("secondary", True)
+            clear_btn.setMinimumWidth(72)
+            clear_btn.clicked.connect(self.clear_links)
+            file_row.addWidget(add_file_btn)
+            file_row.addWidget(clear_btn)
+            file_row.addStretch(1)
+            body.addLayout(file_row)
+
+            # 多行粘贴时自动出现的下拉工具条
+            self.toolbar = QFrame()
+            self.toolbar.setObjectName("bulkToolbar")
+            self.toolbar.setFrameShape(QFrame.StyledPanel)
+            self.toolbar.setStyleSheet(
+                "#bulkToolbar { background: #ffffff; border: 1px solid #e3e4ea; border-radius: 6px; }"
+            )
+            toolbar_layout = QHBoxLayout(self.toolbar)
+            toolbar_layout.setContentsMargins(14, 8, 10, 8)
+            toolbar_layout.setSpacing(10)
+            self.stats_label = QLabel("已识别 0 条")
+            self.stats_label.setStyleSheet("color: #374151;")
+            toolbar_layout.addWidget(self.stats_label)
+            toolbar_layout.addStretch(1)
+            self.bulk_box = QComboBox()
+            self.bulk_box.setMinimumWidth(148)
+            self.bulk_box.setProperty("secondary", True)
+            self.bulk_box.addItem("批量操作…", "")
+            for label, action in (
+                ("提取纯链接", "extract"),
+                ("去除重复", "dedupe"),
+                ("按平台排序", "sort"),
+                ("载入示例", "sample"),
+                ("清空全部", "clear"),
+            ):
+                self.bulk_box.addItem(label, action)
+            self.bulk_box.currentIndexChanged.connect(self._on_bulk_action)
+            toolbar_layout.addWidget(self.bulk_box)
+            self.toolbar.setVisible(False)
+            body.addWidget(self.toolbar)
+            self.links_edit.textChanged.connect(self._on_links_changed)
 
             # 主操作按钮置于选项页之上
             btn_row = QHBoxLayout()
@@ -185,13 +238,14 @@ def run_gui() -> int:
             self.settings_grid.setColumnMinimumWidth(0, 112)
             self.settings_grid.setColumnStretch(1, 1)
             self._add_setting(0, "音质", self._make_quality_row())
-            self._add_setting(1, "音频来源", self._make_source_row())
-            self._add_setting(2, "解析引擎", self._make_engine_row())
-            self._add_setting(3, "条数间隔（秒）", self._make_delay_row())
-            self._add_setting(4, "代理", self._make_proxy_row())
-            self._add_setting(5, "Cookies 文件", self._make_cookies_row())
-            self._add_setting(6, "读取浏览器 Cookies", self._make_browser_row())
-            self._add_setting(7, "输出目录", self._make_dir_row())
+            self._add_setting(1, "输出格式", self._make_format_row())
+            self._add_setting(2, "音频来源", self._make_source_row())
+            self._add_setting(3, "解析引擎", self._make_engine_row())
+            self._add_setting(4, "条数间隔（秒）", self._make_delay_row())
+            self._add_setting(5, "代理", self._make_proxy_row())
+            self._add_setting(6, "Cookies 文件", self._make_cookies_row())
+            self._add_setting(7, "读取浏览器 Cookies", self._make_browser_row())
+            self._add_setting(8, "输出目录", self._make_dir_row())
             self.tabs.addTab(self.settings_page, "输出设置")
 
             self.log_page = QWidget()
@@ -244,17 +298,20 @@ def run_gui() -> int:
             self.settings_grid.addWidget(widget, row, 1)
 
         def _fit_tabs(self) -> None:
-            """依据设置页实际高度固定选项页高度，并让窗口一次容纳全部内容。"""
+            """依据设置页实际高度固定选项页高度。"""
             self.settings_page.adjustSize()
             page_h = max(self.settings_page.sizeHint().height(), 320)
             self.tabs.setFixedHeight(page_h + 40)
+            self._sync_height()
 
+        def _sync_height(self) -> None:
+            """让窗口高度跟随内容（工具条出现/消失时），避免出现滚动条。"""
             self._content.adjustSize()
             needed = self._content.sizeHint().height() + 70
             screen = QApplication.primaryScreen()
             limit = screen.availableGeometry().height() - 80 if screen else needed
             target = max(self.minimumHeight(), min(needed, limit))
-            if target > self.height():
+            if abs(target - self.height()) > 4:
                 self.resize(self.width(), target)
 
         def _make_quality_row(self) -> QWidget:
@@ -266,7 +323,7 @@ def run_gui() -> int:
             self.quality_box.addItem("自定义（在右侧输入）", "")
             for preset in QUALITY_PRESETS.values():
                 self.quality_box.addItem(f"{preset.label}", preset.key)
-            self.quality_box.setCurrentIndex(2)
+            self.quality_box.setCurrentIndex(4)
             self.custom_quality = QSpinBox()
             self.custom_quality.setRange(0, 320)
             self.custom_quality.setSuffix(" kbps")
@@ -291,6 +348,16 @@ def run_gui() -> int:
                 self.quality_box.blockSignals(True)
                 self.quality_box.setCurrentIndex(0)
                 self.quality_box.blockSignals(False)
+
+        def _make_format_row(self) -> QWidget:
+            self.format_box = QComboBox()
+            for key, spec in OUTPUT_FORMATS.items():
+                self.format_box.addItem(f"{spec.label}  ·  .{spec.ext}", key)
+            self.format_box.setToolTip(
+                "MP3 兼容性最好、车机首选；FLAC/WAV 无损但体积大；"
+                "Opus 压缩率最高；WMA 适合老车机"
+            )
+            return self.format_box
 
         def _make_source_row(self) -> QWidget:
             self.source_box = QComboBox()
@@ -367,6 +434,116 @@ def run_gui() -> int:
             if chosen:
                 self.dir_edit.setText(chosen)
 
+        def pick_local_files(self) -> None:
+            exts = " ".join(f"*{e}" for e in sorted(VIDEO_EXTENSIONS | AUDIO_EXTENSIONS))
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "选择本地视频 / 音频文件（可多选）",
+                "",
+                f"媒体文件 ({exts});;视频文件 ({' '.join('*' + e for e in sorted(VIDEO_EXTENSIONS))});;"
+                f"音频文件 ({' '.join('*' + e for e in sorted(AUDIO_EXTENSIONS))});;所有文件 (*)",
+            )
+            if not paths:
+                return
+            current = self.links_edit.toPlainText().splitlines()
+            current = [line for line in current if line.strip()]
+            existing = set(current)
+            added = 0
+            for p in paths:
+                if p not in existing:
+                    current.append(p)
+                    existing.add(p)
+                    added += 1
+            self.links_edit.setPlainText("\n".join(current))
+            self.hint_label.setText(f"已添加 {added} 个本地文件")
+
+        def clear_links(self) -> None:
+            self.links_edit.clear()
+            self.hint_label.setText("已清空")
+
+        def _current_lines(self) -> list[str]:
+            return [line.strip() for line in self.links_edit.toPlainText().splitlines() if line.strip()]
+
+        def _on_links_changed(self) -> None:
+            """多行粘贴时自动显示下拉工具条并统计平台分布。"""
+            lines = self._current_lines()
+            if len(lines) < 2:
+                self.toolbar.setVisible(False)
+                self._sync_height()
+                return
+            self.toolbar.setVisible(True)
+            counts: dict[str, int] = {}
+            link_total = 0
+            file_total = 0
+            for line in lines:
+                urls = extract_urls(line)
+                if urls:
+                    link_total += len(urls)
+                    for u in urls:
+                        label = PLATFORM_LABELS.get(classify_platform(u), "通用")
+                        counts[label] = counts.get(label, 0) + 1
+                else:
+                    file_total += 1
+            parts = [f"{k}×{v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
+            text = f"已识别 {link_total} 条链接"
+            if file_total:
+                text += f" + {file_total} 个本地文件"
+            if parts:
+                text += " · " + " ".join(parts)
+            self.stats_label.setText(text)
+            self._sync_height()
+
+        def _on_bulk_action(self, index: int) -> None:
+            action = self.bulk_box.itemData(index) if index > 0 else ""
+            if not action:
+                return
+            lines = self._current_lines()
+            if action == "extract":
+                urls: list[str] = []
+                for line in lines:
+                    for u in extract_urls(line):
+                        if u not in urls:
+                            urls.append(u)
+                others = [ln for ln in lines if not extract_urls(ln)]
+                self.links_edit.setPlainText("\n".join(urls + others))
+            elif action == "dedupe":
+                seen_urls: set[str] = set()
+                seen_lines: set[str] = set()
+                kept: list[str] = []
+                for line in lines:
+                    urls = extract_urls(line)
+                    if urls:
+                        if any(u in seen_urls for u in urls):
+                            continue
+                        seen_urls.update(urls)
+                        kept.append(line)
+                    else:
+                        if line in seen_lines:
+                            continue
+                        seen_lines.add(line)
+                        kept.append(line)
+                self.links_edit.setPlainText("\n".join(kept))
+            elif action == "sort":
+                from .parser import PLATFORM_LABELS as _labels
+
+                order = list(_labels.keys())
+                def key(line: str) -> tuple[int, str]:
+                    urls = extract_urls(line)
+                    plat = classify_platform(urls[0]) if urls else "local"
+                    idx = order.index(plat) if plat in order else len(order)
+                    return (idx, line)
+                self.links_edit.setPlainText("\n".join(sorted(lines, key=key)))
+            elif action == "sample":
+                self.links_edit.setPlainText(
+                    "https://v.douyin.com/xxxxxxxxxxx/\n"
+                    "https://v.kuaishou.com/xxxxxxxxx\n"
+                    "https://www.kugou.com/mixsong/xxxxxxxx.html\n"
+                    "https://www.bilibili.com/video/BVxxxxxxxx"
+                )
+            elif action == "clear":
+                self.links_edit.clear()
+            self.bulk_box.setCurrentIndex(0)
+
         def pick_cookies(self) -> None:
             chosen, _ = QFileDialog.getOpenFileName(
                 self, "选择 cookies 文件（Netscape 格式）", "", "Cookies (*.txt);;所有文件 (*)"
@@ -395,6 +572,7 @@ def run_gui() -> int:
             options = ConvertOptions(
                 output_dir=Path(self.dir_edit.text()).expanduser(),
                 quality=quality,
+                output_format=self.format_box.currentData() or "mp3",
                 audio_source=self.source_box.currentData(),
                 engine=self.engine_box.currentData(),
                 delay=self.delay_spin.value() / 1.0,

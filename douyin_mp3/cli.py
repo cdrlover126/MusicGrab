@@ -11,6 +11,7 @@ from .config import (
     COOKIE_BROWSER_CHOICES,
     DEFAULT_OUTPUT_DIR,
     ENGINE_CHOICES,
+    OUTPUT_FORMAT_CHOICES,
     ConvertOptions,
 )
 
@@ -40,8 +41,15 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument(
         "-q",
         "--quality",
-        default="192",
-        help="音质: 128/192/256/320 或 32-320 任意整数（默认 192）",
+        default="320",
+        help="音质: 128/192/256/320 或 32-320 任意整数（默认 320）",
+    )
+    convert.add_argument(
+        "-f",
+        "--format",
+        choices=OUTPUT_FORMAT_CHOICES,
+        default="mp3",
+        help="输出格式: mp3/wav/flac/m4a/aac/ogg/opus/wma（默认 mp3，车机首选）",
     )
     convert.add_argument(
         "-s",
@@ -81,6 +89,7 @@ def run_convert(args: argparse.Namespace) -> int:
     options = ConvertOptions(
         output_dir=Path(args.output).expanduser(),
         quality=args.quality,
+        output_format=args.format,
         audio_source=args.source,
         engine=args.engine,
         proxy=args.proxy,

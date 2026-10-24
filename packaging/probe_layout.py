@@ -28,6 +28,13 @@ def patched_exec(self):
             self.quit()
             return
         win.tabs.setCurrentIndex(tab_index)
+        if "--paste" in sys.argv:
+            win.links_edit.setPlainText(
+                "7.92 复制打开抖音，看看【某人的作品】 https://v.douyin.com/iAbCdEf/\n"
+                "https://v.kuaishou.com/nmqf0KDZ\n"
+                "https://www.kugou.com/mixsong/g5jy4e47.html\n"
+                "https://www.bilibili.com/video/BV1rcn56hEoT"
+            )
         self.processEvents()
         pix = win.grab()
         out = root / "packaging" / "layout_probe.png"

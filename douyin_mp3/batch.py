@@ -10,8 +10,21 @@ from typing import Callable
 
 import requests
 
-from .config import ConvertOptions, temp_dir
-from .converter import Mp3Meta, convert_to_mp3, probe_duration_seconds, sanitize_filename
+from .config import (
+    AUDIO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    ConvertOptions,
+    resolve_output_format,
+    temp_dir,
+)
+from .converter import (
+    ConverterError,
+    Mp3Meta,
+    convert_to_audio,
+    convert_to_mp3,
+    probe_duration_seconds,
+    sanitize_filename,
+)
 from .cookies import CookieError
 from .downloader import DownloadError, download_with_retry
 from .generic import GenericParseError, download_generic_audio
@@ -98,13 +111,31 @@ class BatchProcessor:
                     links.append(url)
         return links
 
+    @staticmethod
+    def collect_local_files(lines: list[str]) -> list[Path]:
+        """从输入行中收集本地媒体文件路径（视频或音频）。"""
+        files: list[Path] = []
+        for line in lines:
+            text = line.strip().strip('"').strip("'")
+            if not text or "://" in text:
+                continue
+            path = Path(text).expanduser()
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in (VIDEO_EXTENSIONS | AUDIO_EXTENSIONS):
+                continue
+            if path not in files:
+                files.append(path)
+        return files
+
     def _unique_path(self, directory: Path, base: str, template_index: int, title: str) -> Path:
         name = self.options.filename_template.format(index=template_index, title=sanitize_filename(title))
         name = sanitize_filename(name.replace("/", "_"))
-        candidate = directory / f"{name}.mp3"
+        ext = resolve_output_format(self.options.output_format).ext
+        candidate = directory / f"{name}.{ext}"
         counter = 2
         while candidate.exists():
-            candidate = directory / f"{name} ({counter}).mp3"
+            candidate = directory / f"{name} ({counter}).{ext}"
             counter += 1
         return candidate
 
@@ -123,9 +154,11 @@ class BatchProcessor:
 
     def run(self, lines: list[str]) -> BatchSummary:
         links = self.collect_links(lines)
-        summary = BatchSummary(total=len(links))
-        if not links:
-            self._log("未从输入中解析到抖音链接")
+        local_files = self.collect_local_files(lines)
+        total_items = len(links) + len(local_files)
+        summary = BatchSummary(total=total_items)
+        if not total_items:
+            self._log("未从输入中解析到链接或本地文件")
             self.on_all_done(summary)
             return summary
 
@@ -139,16 +172,27 @@ class BatchProcessor:
         work_dir = temp_dir() / uuid.uuid4().hex[:8]
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        self._log(f"共 {len(links)} 条链接，输出目录: {options.output_dir}，质量: {options.bitrate}")
+        fmt_label = resolve_output_format(options.output_format).label
+        self._log(
+            f"共 {len(links)} 条链接"
+            + (f" + {len(local_files)} 个本地文件" if local_files else "")
+            + f"，输出目录: {options.output_dir}，质量: {options.bitrate}，格式: {fmt_label}"
+        )
         report_rows: list[dict] = []
 
+        tasks: list[tuple[str, str]] = [("link", url) for url in links]
+        tasks.extend(("file", str(path)) for path in local_files)
+
         try:
-            for index, url in enumerate(links, start=1):
+            for index, (kind, target) in enumerate(tasks, start=1):
                 if self._cancel.is_set():
                     self._log("已取消剩余任务")
                     break
-                self.on_item_start(index, len(links), url)
-                result = self._process_one(client, work_dir, index, url, len(links))
+                self.on_item_start(index, total_items, target)
+                if kind == "file":
+                    result = self._process_local_file(work_dir, index, Path(target), total_items)
+                else:
+                    result = self._process_one(client, work_dir, index, target, total_items)
                 summary.results.append(result)
                 if result.status == "ok":
                     summary.succeeded += 1
@@ -168,7 +212,7 @@ class BatchProcessor:
                     }
                 )
                 self.on_item_done(result)
-                if index < len(links) and not self._cancel.is_set():
+                if index < total_items and not self._cancel.is_set():
                     time.sleep(max(options.delay, 0))
         finally:
             if not options.keep_temp:
@@ -178,6 +222,43 @@ class BatchProcessor:
         self._log(f"完成：成功 {summary.succeeded}，失败 {summary.failed}")
         self.on_all_done(summary)
         return summary
+
+    def _process_local_file(
+        self, work_dir: Path, index: int, src: Path, total: int
+    ) -> TaskResult:
+        """处理本地视频/音频文件：直接用 ffmpeg 提取音轨，无需解析与下载。"""
+        options = self.options
+        try:
+            if not src.is_file():
+                return TaskResult(index, str(src), "failed", f"文件不存在: {src}")
+
+            title = sanitize_filename(src.stem)
+            self._log(f"[{index}/{total}] 本地文件《{title}》({src.suffix.lower()})")
+
+            duration = probe_duration_seconds(find_ffmpeg_cached(self.ffmpeg_path) or "", src)
+            out_path = self._unique_path(options.output_dir, "", index, title)
+            convert_to_audio(
+                src,
+                out_path,
+                options.bitrate,
+                fmt=options.output_format,
+                ffmpeg=self.ffmpeg_path,
+                meta=Mp3Meta(
+                    title=title,
+                    artist="本地文件",
+                    album="本地媒体",
+                    comment=str(src),
+                    track=index,
+                ),
+            )
+            size = out_path.stat().st_size
+            self._log(f"[{index}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
+            return TaskResult(
+                index, str(src), "ok", "成功", str(out_path), title, "本地文件", duration, size
+            )
+        except (ConverterError, OSError, ValueError) as exc:
+            self._log(f"[{index}/{total}] 失败: {exc}")
+            return TaskResult(index, str(src), "failed", str(exc))
 
     def _process_one(
         self, client: DouyinClient, work_dir: Path, index: int, url: str, total: int
@@ -311,10 +392,11 @@ class BatchProcessor:
                     )
 
             out_path = self._unique_path(options.output_dir, "", index, title)
-            convert_to_mp3(
+            convert_to_audio(
                 tmp_src,
                 out_path,
                 options.bitrate,
+                fmt=options.output_format,
                 ffmpeg=self.ffmpeg_path,
                 meta=Mp3Meta(
                     title=sanitize_filename(title),

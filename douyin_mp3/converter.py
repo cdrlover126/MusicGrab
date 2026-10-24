@@ -9,7 +9,7 @@ from pathlib import Path
 from mutagen.id3 import ID3, COMM, TALB, TCON, TIT2, TPE1, TRCK
 from mutagen.id3._util import ID3NoHeaderError
 
-from .config import CHANNELS, ID3_VERSION, SAMPLE_RATE
+from .config import CHANNELS, ID3_VERSION, SAMPLE_RATE, resolve_output_format
 
 DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 
@@ -106,8 +106,45 @@ def convert_to_mp3(
     ffmpeg: str | None = None,
     meta: Mp3Meta | None = None,
 ) -> Path:
+    """转码为 MP3（保留原有调用方式）。"""
+    return convert_to_audio(src, dst, bitrate, fmt="mp3", ffmpeg=ffmpeg, meta=meta)
+
+
+def _ffmpeg_metadata_args(meta: Mp3Meta) -> list[str]:
+    """以 ffmpeg -metadata 方式写入标签（适用于 flac/ogg/m4a/wav/wma 等）。"""
+    args: list[str] = []
+    for key, value in (
+        ("title", meta.title),
+        ("artist", meta.artist),
+        ("album", meta.album),
+        ("comment", meta.comment),
+    ):
+        text = _sanitize_tag_text(value)
+        if text:
+            args.extend(["-metadata", f"{key}={text}"])
+    if meta.track:
+        args.extend(["-metadata", f"track={meta.track}"])
+    return args
+
+
+def convert_to_audio(
+    src: Path,
+    dst: Path,
+    bitrate: str,
+    *,
+    fmt: str = "mp3",
+    ffmpeg: str | None = None,
+    meta: Mp3Meta | None = None,
+) -> Path:
+    """把音视频源转码为指定音频格式。
+
+    - MP3 额外用 mutagen 写入 ID3v2.3 标签（车机兼容性最好）
+    - 其余格式由 ffmpeg 通过 -metadata 写入对应容器标签
+    """
+    spec = resolve_output_format(fmt)
     ffmpeg_bin = find_ffmpeg(ffmpeg)
     dst.parent.mkdir(parents=True, exist_ok=True)
+
     cmd = [
         ffmpeg_bin,
         "-y",
@@ -121,21 +158,25 @@ def convert_to_mp3(
         "-map_metadata",
         "-1",
         "-codec:a",
-        "libmp3lame",
-        "-b:a",
-        bitrate,
-        "-ar",
-        str(SAMPLE_RATE),
-        "-ac",
-        str(CHANNELS),
-        "-write_xing",
-        "1",
-        str(dst),
+        spec.codec,
     ]
+    if not spec.lossless:
+        cmd.extend(["-b:a", bitrate])
+    cmd.extend(["-ar", str(spec.sample_rate or SAMPLE_RATE), "-ac", str(CHANNELS)])
+
+    if spec.key == "mp3":
+        cmd.extend(["-write_xing", "1"])
+    else:
+        if meta:
+            cmd.extend(_ffmpeg_metadata_args(meta))
+    if spec.container:
+        cmd.extend(["-f", spec.container])
+    cmd.append(str(dst))
+
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0 or not dst.exists() or dst.stat().st_size == 0:
         tail = (proc.stderr or "").strip().splitlines()[-8:]
         raise ConverterError("ffmpeg 转码失败:\n" + "\n".join(tail))
-    if meta:
+    if meta and spec.key == "mp3":
         write_id3(dst, meta)
     return dst

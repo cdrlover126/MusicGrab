@@ -23,10 +23,13 @@
 ## 2. 功能一览
 
 - **批量转换**：支持多行粘贴、分享口令混合、批量排队
+- **多行工具条**：粘贴 2 条以上时自动出现下拉工具条，可统计平台分布、一键提取纯链接、去重、按平台排序、载入示例
+- **本地文件输入**：除网络链接外，还可直接导入本地视频/音频（mp4 / mkv / mov / avi / flv / wmv / webm / ts / rmvb / mpg 等 30+ 常见容器），直接提取音轨
 - **解析引擎切换**：`auto`（默认，智能选择）/ `douyin`（强制内置解析器）/ `generic`（强制 yt-dlp）
 - **音频来源（抖音专用）**：`auto` / `video`（视频音轨）/ `music`（纯配乐）
-- **音质调节**：预设 128/192/256/320 kbps，也可自定义 32～320 kbps
-- **车机兼容**：统一输出 MP3、ID3v2.3 标签，44.1kHz 双声道
+- **音质调节**：预设 128/192/256/320 kbps（**默认 320 极清**），也可自定义 32～320 kbps
+- **输出格式可选**：MP3 / WAV / FLAC / M4A / AAC / OGG / Opus / WMA，MP3 写 ID3v2.3（车机兼容最好），其余写各容器原生标签
+- **车机兼容**：44.1kHz 双声道、文件名自动编号、ID3v2.3 标签（歌名/歌手/专辑/来源注释）
 - **登录站点支持**：`--cookies`（Netscape 格式）或 `--cookies-from-browser`（edge/chrome/firefox/chromium/brave/opera）
 - **代理支持**：`--proxy`，适用于境外站点或网络受限场景
 - **内置 ffmpeg**：使用 `imageio-ffmpeg`，开箱即用无需手动配置
@@ -72,9 +75,11 @@ douyin-mp3
 
 界面要点：
 - **链接输入**：将分享口令或链接粘贴到文本框，每行一条即可
-- **输出设置（可折叠）**：音质、音频来源、解析引擎、条数间隔、代理、Cookies、浏览器 Cookies、输出目录
-- **开始/停止**：支持随时停止当前批量任务
-- **详情日志**：默认隐藏，点击“显示详情日志”可查看解析、下载、转码的完整过程，便于排查问题
+- **多行工具条**：粘贴 **2 条以上**时自动出现，显示识别到的条数与平台分布（`抖音×2 快手×1 …`），右侧「批量操作…」可一键**提取纯链接 / 去重 / 按平台排序 / 载入示例 / 清空**
+- **添加本地文件…**：直接导入本地视频或音频（可多选），会追加到输入框，与网络链接混合处理
+- **开始/停止**：位于选项页上方，支持随时停止当前批量任务
+- **输出设置**（选项页）：音质、输出格式、音频来源、解析引擎、条数间隔、代理、Cookies、浏览器 Cookies、输出目录
+- **详情日志**（选项页）：查看解析、下载、转码的完整过程，便于排查问题
 - **进度显示**：仅显示百分比进度，转换完成后会弹窗提示成功/失败数量
 
 ### 4.2 命令行
@@ -95,14 +100,21 @@ douyin-mp3 convert "https://y.qq.com/n/ryqq/songDetail/xxx" --cookies ".\cookies
 # 多平台混合 + 代理（境外站点）
 douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xxxxxxxx" `
   --quality 320 --source auto --engine auto --proxy http://127.0.0.1:7890 --skip-existing
+
+# 本地视频文件直接提取音轨（可与网络链接混合）
+douyin-mp3 convert "D:\视频\MV.mp4" "D:\视频\翻唱.mkv" -q 320 -f flac
+
+# 指定输出格式（mp3 / wav / flac / m4a / aac / ogg / opus / wma）
+douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
 ```
 
 #### 命令行参数说明
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `urls`（位置参数） | 必填 | 一条或多条分享链接/口令，支持混合粘贴 |
-| `-q, --quality` | `192` | `128`/`192`/`256`/`320` 或 `32-320` 任意整数 |
+| `urls`（位置参数） | 必填 | 一条或多条分享链接/口令/本地文件路径，支持混合粘贴 |
+| `-q, --quality` | `320` | `128`/`192`/`256`/`320` 或 `32-320` 任意整数 |
+| `-f, --format` | `mp3` | 输出格式：`mp3`/`wav`/`flac`/`m4a`/`aac`/`ogg`/`opus`/`wma` |
 | `-s, --source` | `auto` | `auto`/`video`/`music`（仅抖音内置解析器生效） |
 | `--engine` | `auto` | `auto`（智能选择）/`douyin`（强制内置：抖音、快手）/`generic`（强制 yt-dlp） |
 | `-o, --output` | `~/Music/MusicGrab` | 输出目录（会自动创建） |
@@ -112,6 +124,25 @@ douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xx
 | `--ffmpeg` | 空（自动） | 指定自定义 `ffmpeg.exe` 路径，默认优先使用 `imageio-ffmpeg` 内置 |
 | `--skip-existing` | 否 | 跳过已存在的同名文件（可避免重复转换） |
 | `--delay` | `2` | 每条链接之间的间隔秒数（有助于降低风控概率） |
+
+### 4.3 输出格式与本地文件
+
+**输出格式**（GUI 中在「输出设置 → 输出格式」选择，或 CLI 用 `-f/--format`）
+
+| 格式 | 编码 | 特点 | 适用场景 |
+|---|---|---|---|
+| **MP3** | libmp3lame | 有损，ID3v2.3 标签 | **车机首选**，兼容性最好 |
+| WAV | pcm_s16le | 无损，未压缩 | 需要原始波形，体积大 |
+| FLAC | flac | 无损压缩 | 无损收藏，体积小于 WAV |
+| M4A | aac | 有损，体积小 | Apple 生态 / iOS 设备 |
+| AAC | aac (ADTS) | 有损 | 流媒体场景 |
+| OGG | libvorbis | 有损 | 开源播放器 |
+| Opus | libopus | 有损，高压缩比 | 语音/低码率 |
+| WMA | wmv2 | 有损 | 老车机、旧 Windows |
+
+> 除 MP3 使用 ID3v2.3 外，其余格式写入各容器原生标签（FLAC/OGG 写 Vorbis Comment、M4A 写 MP4 Atom、WMA 写 ASF、WAV 写 LIST-INFO）。Opus 固定使用 48kHz（格式限制），其余统一 44.1kHz 双声道。
+
+**本地文件**：程序会自动识别输入行中的本地路径，支持 30+ 常见视频容器（mp4 / mkv / mov / avi / flv / f4v / wmv / webm / ts / m2ts / 3gp / rmvb / rm / mpg / mpeg / vob / asf / ogv / divx …）及常见音频格式（mp3 / wav / flac / m4a / ogg / opus / wma / ape / aiff…）。本地文件**不需要解析与下载**，直接用 ffmpeg 提取音轨，标题取自文件名。
 
 ## 5. 故障排查（常见问题）
 
@@ -126,6 +157,9 @@ douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xx
 | **转码报错 / 找不到 ffmpeg** | 环境异常或自定义路径错误 | 默认已用 `imageio-ffmpeg`，如仍报错可用 `--ffmpeg "C:\path\to\ffmpeg.exe"` 手动指定 |
 | **音质偏低 / 只能提取试听片段** | 平台限制或仅提供低码率音轨 | 部分平台确实只提供预览音频，换其他链接或站点可能会有更好选择 |
 | **文件名乱码/特殊字符** | 原标题含特殊符号 | 程序已做文件名清洗，会自动替换非法字符并用编号避免重名 |
+| **本地文件没被识别** | 扩展名不在支持列表 | 确认是常见视频/音频格式（mp4/mkv/mov/avi/flv/wmv/webm/ts/rmvb/mpg… 或 mp3/wav/flac/m4a/ogg/opus/wma）；路径需为完整路径 |
+| **Opus 转换失败** | Opus 编码器要求 48kHz | 程序已自动对 Opus 改用 48kHz；若仍失败请用 FLAC 或 MP3 |
+| **车机不认某个格式** | 车机解码能力有限 | 老车机建议用 MP3（ID3v2.3），部分车机仅支持 MP3/WAV |
 
 > 提示：工具会在转换完成后生成 `conversion_report_*.csv`，记录每条链接的状态、文件名、时长、码率等，便于复盘和排查。
 
