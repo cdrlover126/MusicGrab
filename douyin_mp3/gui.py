@@ -605,7 +605,9 @@ def run_gui() -> int:
             self.worker.finished_all.connect(self._on_finished)
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
-            self.tabs.setEnabled(False)
+            # 只锁住「输出设置」页的内容，页签本身保持可点击，
+            # 否则处理期间无法切到「详情日志」查看实时进度
+            self.settings_page.setEnabled(False)
             self.links_edit.setReadOnly(True)
             self.progress.setRange(0, len(lines))
             self.progress.setValue(0)
@@ -633,6 +635,7 @@ def run_gui() -> int:
         def _on_finished(self, summary: object) -> None:
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
+            self.settings_page.setEnabled(True)
             self.tabs.setEnabled(True)
             self.links_edit.setReadOnly(False)
             ok = getattr(summary, "succeeded", 0)
