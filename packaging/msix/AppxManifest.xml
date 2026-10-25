@@ -8,7 +8,7 @@
   <Identity
     Name="com.cdrlover.musicgrab"
     Publisher="CN=cdrlover"
-    Version="1.5.0.0" />
+    Version="1.6.0.0" />
 
   <Properties>
     <DisplayName>乐取 MusicGrab</DisplayName>

@@ -6,7 +6,7 @@ from typing import Callable
 
 import requests
 
-from .config import DOWNLOAD_TIMEOUT, MOBILE_UA, PC_UA
+from .config import DOWNLOAD_TIMEOUT, PC_UA
 
 ProgressCallback = Callable[[int, int], None]
 

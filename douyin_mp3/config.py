@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import APP_NAME, __version__
+from . import __version__
 
 VERSION = __version__
 

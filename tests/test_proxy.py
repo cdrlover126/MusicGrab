@@ -65,8 +65,10 @@ def test_proxy_error_message_mentions_port_and_hint():
 
 def test_describe_effective_proxy_explicit():
     text = describe_effective_proxy("http://127.0.0.1:7890")
-    assert "使用指定代理" in text
     assert "7890" in text
+    assert "仅境外站点使用" in text
+    text2 = describe_effective_proxy("http://127.0.0.1:7890", "proxy")
+    assert "全部请求走此代理" in text2
 
 
 def test_build_session_trust_env_toggle():
@@ -83,13 +85,14 @@ def test_convert_options_trust_env_default():
 
 
 def test_describe_effective_proxy_direct_mode():
-    text = describe_effective_proxy(None, trust_env=False)
+    text = describe_effective_proxy(None, "direct")
     assert "直连" in text
 
 
-def test_describe_effective_proxy_follow_system():
-    text = describe_effective_proxy(None, trust_env=True)
-    assert "直连" in text or "跟随" in text
+def test_describe_effective_proxy_auto_mode():
+    text = describe_effective_proxy(None, "auto")
+    assert "未填写" in text
+    assert "境外站点" in text
 
 
 def test_is_timeout_error():

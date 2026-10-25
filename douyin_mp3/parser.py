@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
-from .config import MOBILE_UA, PC_UA, REQUEST_TIMEOUT
+from .config import MOBILE_UA, REQUEST_TIMEOUT
 from .cookies import load_requests_cookies
 from .proxy import build_session
 

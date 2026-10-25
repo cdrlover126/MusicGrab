@@ -93,21 +93,22 @@ class BatchProcessor:
 
     def _kuaishou_client(self) -> KuaishouClient:
         if self._kuaishou is None:
+            # 代理按每条任务的路由决策动态设置，此处不固定
             self._kuaishou = KuaishouClient(
-                proxy=self.options.proxy,
+                proxy=None,
                 cookies_file=self.options.cookies_file,
                 cookies_from_browser=self.options.cookies_from_browser,
-                trust_env=self.options.trust_env,
+                trust_env=False,
             )
         return self._kuaishou
 
     def _kugou_client(self) -> KugouClient:
         if self._kugou is None:
             self._kugou = KugouClient(
-                proxy=self.options.proxy,
+                proxy=None,
                 cookies_file=self.options.cookies_file,
                 cookies_from_browser=self.options.cookies_from_browser,
-                trust_env=self.options.trust_env,
+                trust_env=False,
             )
         return self._kugou
 
@@ -184,7 +185,7 @@ class BatchProcessor:
         self._log(f"路由模式: {ROUTE_MODE_LABELS.get(options.route_mode, options.route_mode)}")
         if options.route_mode == "auto":
             self._log("规则: 国内平台直连 · 境外站点优先用指定代理，无代理时尝试系统代理/直连")
-        self._log(describe_effective_proxy(options.proxy, options.trust_env))
+        self._log(describe_effective_proxy(options.proxy, options.route_mode))
 
         # 代理预检：代理不通时给出明确提示
         proxy_ok = True
@@ -322,7 +323,6 @@ class BatchProcessor:
             self._log(f"[{index}/{total}] {route.error}")
             return TaskResult(index, url, "failed", route.error)
         self._log(f"[{index}/{total}] 路由: {route.reason}")
-        self._apply_route(client, route)
         task_proxy = normalize_proxy(options.proxy) if route.use_proxy else None
 
         try:
@@ -336,6 +336,7 @@ class BatchProcessor:
             album = "抖音音乐"
 
             if platform == "douyin":
+                self._apply_route(client, route)
                 info = None
                 last_error: Exception | None = None
                 for attempt in range(1, options.max_retries + 1):
@@ -373,6 +374,7 @@ class BatchProcessor:
                 )
             elif platform == "kuaishou":
                 kuaishou_client = self._kuaishou_client()
+                self._apply_route(kuaishou_client, route)
                 info = None
                 last_error = None
                 for attempt in range(1, options.max_retries + 1):
@@ -409,6 +411,7 @@ class BatchProcessor:
                 )
             elif platform == "kugou":
                 kugou_client = self._kugou_client()
+                self._apply_route(kugou_client, route)
                 info = None
                 last_error = None
                 for attempt in range(1, options.max_retries + 1):

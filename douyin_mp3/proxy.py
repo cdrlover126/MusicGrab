@@ -208,26 +208,26 @@ def is_proxy_error(exc: BaseException) -> bool:
     return False
 
 
-def describe_effective_proxy(explicit: str | None, trust_env: bool = True) -> str:
-    """描述实际生效的代理：显式设置 / 继承系统 / 强制直连。"""
+def describe_effective_proxy(explicit: str | None, mode: str = "auto") -> str:
+    """描述当前代理设置状态（结合路由模式）。"""
     text = normalize_proxy(explicit)
     if text:
-        return f"使用指定代理 {text}"
+        if mode == "proxy":
+            return f"代理: {text}（全部请求走此代理）"
+        return f"代理: {text}（智能模式下仅境外站点使用）"
     try:
         system = requests.utils.get_environ_proxies("https://www.douyin.com")
     except Exception:
         system = {}
     inherited = {
-        k: v
-        for k, v in system.items()
-        if k in ("http", "https") and v
+        k: v for k, v in system.items() if k in ("http", "https") and v
     }
-    if inherited and trust_env:
-        detail = ", ".join(f"{k}={v}" for k, v in inherited.items())
-        return f"未指定代理，跟随系统/环境代理（{detail}）"
-    if inherited:
-        return "直连（已忽略系统/环境代理：" + ", ".join(f"{k}={v}" for k, v in inherited.items()) + "）"
-    return "直连（未使用代理）"
+    detail = ", ".join(f"{k}={v}" for k, v in inherited.items())
+    if not inherited:
+        return "代理: 未填写（国内平台直连，境外站点将提示需要代理）"
+    if mode == "direct":
+        return f"代理: 未填写（已忽略系统代理 {detail}，全部直连）"
+    return f"代理: 未填写（检测到系统代理 {detail}，境外站点直连不通时会自动跟随）"
 
 
 def build_session(
