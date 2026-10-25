@@ -64,14 +64,24 @@ pip install -e ".[dev]"
 ### 4.1 图形界面（推荐）
 
 ```powershell
-# 源码方式
-python -m douyin_mp3
+# 成品（推荐）：双击 dist\MusicGrab.exe，无控制台窗口
+# 源码方式（不想看到控制台窗口时用 pythonw）
+pythonw -m douyin_mp3
+# 或双击项目根目录的 乐取.pyw
 
 # 安装包方式（pip install -e . 后）
-douyin-mp3
+pythonw -m douyin_mp3
 # 或
 乐取 MusicGrab
+
+# 命令行模式（需要控制台输出）
+python -m douyin_mp3 convert "https://v.douyin.com/xxx/" -o "D:\Music"
 ```
+
+> **关于黑色控制台窗口一闪而过**：打包版（`--windowed`）本身不附带控制台，
+> 但它调用的 ffmpeg / ffprobe 是控制台程序，Windows 会为子进程新建控制台窗口。
+> 程序已在启动时对 `subprocess` 做全局处理：父进程无控制台时自动为所有子进程
+> 加上 `CREATE_NO_WINDOW`，因此运行全程不再有终端窗口闪现（命令行模式不受影响）。
 
 界面要点：
 - **链接输入**：将分享口令或链接粘贴到文本框，每行一条即可

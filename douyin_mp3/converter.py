@@ -173,7 +173,13 @@ def convert_to_audio(
         cmd.extend(["-f", spec.container])
     cmd.append(str(dst))
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if proc.returncode != 0 or not dst.exists() or dst.stat().st_size == 0:
         tail = (proc.stderr or "").strip().splitlines()[-8:]
         raise ConverterError("ffmpeg 转码失败:\n" + "\n".join(tail))
