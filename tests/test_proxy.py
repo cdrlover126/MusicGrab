@@ -10,9 +10,11 @@ from douyin_mp3.proxy import (
     check_proxy_reachable,
     describe_effective_proxy,
     is_proxy_error,
+    is_timeout_error,
     normalize_proxy,
     proxy_error_message,
     proxy_host_port,
+    timeout_error_message,
 )
 
 
@@ -58,7 +60,7 @@ def test_proxy_error_message_mentions_port_and_hint():
     msg = proxy_error_message(err, "http://127.0.0.1:10090")
     assert "代理无法连接" in msg
     assert "10090" in msg
-    assert "强制直连" in msg
+    assert "直连" in msg
 
 
 def test_describe_effective_proxy_explicit():
@@ -76,4 +78,26 @@ def test_build_session_trust_env_toggle():
 
 
 def test_convert_options_trust_env_default():
-    assert ConvertOptions().trust_env is True
+    # 默认直连：国内平台直连即可，避免静默继承失效的系统代理
+    assert ConvertOptions().trust_env is False
+
+
+def test_describe_effective_proxy_direct_mode():
+    text = describe_effective_proxy(None, trust_env=False)
+    assert "直连" in text
+
+
+def test_describe_effective_proxy_follow_system():
+    text = describe_effective_proxy(None, trust_env=True)
+    assert "直连" in text or "跟随" in text
+
+
+def test_is_timeout_error():
+    assert is_timeout_error(requests.exceptions.ReadTimeout("timed out"))
+    assert is_timeout_error(Exception("Read timed out. (read timeout=30)"))
+    assert not is_timeout_error(Exception("页面结构未找到视频数据"))
+
+
+def test_timeout_error_message_hints_proxy():
+    msg = timeout_error_message(requests.exceptions.ReadTimeout("timed out"))
+    assert "代理" in msg

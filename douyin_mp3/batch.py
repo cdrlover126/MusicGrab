@@ -42,7 +42,9 @@ from .proxy import (
     check_proxy_reachable,
     describe_effective_proxy,
     is_proxy_error,
+    is_timeout_error,
     proxy_error_message,
+    timeout_error_message,
 )
 
 
@@ -175,7 +177,7 @@ class BatchProcessor:
         options.output_dir.mkdir(parents=True, exist_ok=True)
 
         # 代理预检：代理不通时直接给出明确提示，避免每条任务都失败并误报为“风控”
-        self._log(describe_effective_proxy(options.proxy))
+        self._log(describe_effective_proxy(options.proxy, options.trust_env))
         try:
             check_proxy_reachable(options.proxy)
         except ProxyUnreachableError as exc:
@@ -312,6 +314,10 @@ class BatchProcessor:
                             msg = proxy_error_message(exc, options.proxy)
                             self._log(f"[{index}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
+                        if is_timeout_error(exc):
+                            msg = timeout_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
@@ -345,6 +351,10 @@ class BatchProcessor:
                             msg = proxy_error_message(exc, options.proxy)
                             self._log(f"[{index}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
+                        if is_timeout_error(exc):
+                            msg = timeout_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 快手解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
@@ -375,6 +385,10 @@ class BatchProcessor:
                         last_error = exc
                         if is_proxy_error(exc):
                             msg = proxy_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
+                        if is_timeout_error(exc):
+                            msg = timeout_error_message(exc, options.proxy)
                             self._log(f"[{index}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 酷狗解析失败(第{attempt}次): {exc}")

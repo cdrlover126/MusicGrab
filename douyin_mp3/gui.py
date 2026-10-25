@@ -395,10 +395,12 @@ def run_gui() -> int:
             self.proxy_edit = QLineEdit()
             self.proxy_edit.setPlaceholderText("http://127.0.0.1:7890（留空直连，境外站点必填）")
             self.proxy_edit.setToolTip("仅当目标站点需要代理时填写，例如 http://127.0.0.1:7890")
-            self.direct_check = QCheckBox("强制直连")
+            self.direct_check = QCheckBox("直连")
+            self.direct_check.setChecked(True)
             self.direct_check.setToolTip(
-                "勾选后忽略系统/环境变量中的代理。\n"
-                "代理软件没启动时若报「代理无法连接」，可勾选此项重试。"
+                "默认直连，忽略 Windows 系统代理与 HTTP_PROXY 环境变量。\n"
+                "国内平台（抖音/快手/酷狗/B站等）直连即可。\n"
+                "如需走代理：填写上面的代理地址并取消勾选本项。"
             )
             h.addWidget(self.proxy_edit, 1)
             h.addWidget(self.direct_check, 0)

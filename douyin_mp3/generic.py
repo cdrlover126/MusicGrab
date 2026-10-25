@@ -73,11 +73,28 @@ COOKIE_HINT = (
     "或 --cookies cookies.txt 提供 cookies 后重试"
 )
 
+PROXY_HINT = (
+    "若该站点为境外站点（YouTube/TikTok/X/Instagram 等），"
+    "请填写代理地址（--proxy http://127.0.0.1:7890）；"
+    "若系统代理已配置，可加 --follow-system-proxy 跟随它"
+)
+
+_TIMEOUT_WORDS = (
+    "timed out",
+    "timeout",
+    "unable to connect to server",
+    "connection refused",
+    "network is unreachable",
+    "failed to establish",
+)
+
 
 def _friendly_error(message: str) -> str:
     lowered = message.lower()
     if any(word in lowered for word in ("cookie", "login", "registered", "sign in", "log in")):
         return f"{message}（{COOKIE_HINT}）"
+    if any(word in lowered for word in _TIMEOUT_WORDS):
+        return f"{message}（{PROXY_HINT}）"
     return message
 
 

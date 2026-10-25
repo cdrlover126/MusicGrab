@@ -151,7 +151,7 @@ class ConvertOptions:
     max_retries: int = MAX_RETRIES
     keep_temp: bool = False
     proxy: str | None = None
-    trust_env: bool = True
+    trust_env: bool = False
     ffmpeg_path: str | None = None
     cookies_file: str | None = None
     cookies_from_browser: str | None = None
@@ -162,4 +162,5 @@ class ConvertOptions:
 
     @property
     def use_builtin_parser(self) -> bool:
+        """内置解析器（抖音/快手/酷狗）优先，其余走 yt-dlp。"""
         return self.engine in ("auto", "douyin")

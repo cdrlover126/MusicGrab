@@ -74,8 +74,8 @@ def is_proxy_error(exc: BaseException) -> bool:
     return False
 
 
-def describe_effective_proxy(explicit: str | None) -> str:
-    """描述实际生效的代理：显式设置 or 继承自系统。"""
+def describe_effective_proxy(explicit: str | None, trust_env: bool = True) -> str:
+    """描述实际生效的代理：显式设置 / 继承系统 / 强制直连。"""
     text = normalize_proxy(explicit)
     if text:
         return f"使用指定代理 {text}"
@@ -88,9 +88,11 @@ def describe_effective_proxy(explicit: str | None) -> str:
         for k, v in system.items()
         if k in ("http", "https") and v
     }
-    if inherited:
+    if inherited and trust_env:
         detail = ", ".join(f"{k}={v}" for k, v in inherited.items())
-        return f"未指定代理，继承系统/环境代理（{detail}）"
+        return f"未指定代理，跟随系统/环境代理（{detail}）"
+    if inherited:
+        return "直连（已忽略系统/环境代理：" + ", ".join(f"{k}={v}" for k, v in inherited.items()) + "）"
     return "直连（未使用代理）"
 
 
@@ -120,10 +122,40 @@ def proxy_error_message(exc: BaseException, proxy: str | None = None) -> str:
         target = text or "系统/环境中的代理"
         return (
             f"代理无法连接（{target}）——请确认代理软件已启动、端口与设置一致；"
-            f"若不需要代理请清空「代理」设置或勾选「强制直连」"
+            f"若不需要代理请清空「代理」设置并勾选「直连」"
         )
     if "407" in detail or "Proxy Authentication" in detail:
         return f"代理需要认证（{text}）——请检查代理用户名/密码"
     if text:
         return f"代理请求失败（{text}）：{detail[:160]}"
-    return f"代理请求失败（继承系统/环境代理）：{detail[:160]}"
+    return f"代理请求失败（跟随系统/环境代理）：{detail[:160]}"
+
+
+TIMEOUT_HINT = (
+    "若目标为境外站点，请填写代理地址（http://127.0.0.1:7890）；"
+    "国内平台直连即可"
+)
+
+_TIMEOUT_MARKERS = (
+    "timed out",
+    "timeout",
+    "read timeout",
+    "connect timeout",
+    "network is unreachable",
+    "failed to establish a new connection",
+    "temporary failure in name resolution",
+    "getaddrinfo failed",
+)
+
+
+def is_timeout_error(exc: BaseException) -> bool:
+    """判断异常是否为网络超时/不可达（而非平台返回的解析错误）。"""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return True
+    detail = str(exc).lower()
+    return any(marker in detail for marker in _TIMEOUT_MARKERS)
+
+
+def timeout_error_message(exc: BaseException, proxy: str | None = None) -> str:
+    """网络超时/不可达的可操作提示。"""
+    return f"网络连接失败：{str(exc)[:140]}（{TIMEOUT_HINT}）"
