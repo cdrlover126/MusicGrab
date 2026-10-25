@@ -38,12 +38,16 @@ from .parser import (
     extract_urls,
 )
 from .proxy import (
+    ROUTE_MODE_LABELS,
     ProxyUnreachableError,
+    Route,
     check_proxy_reachable,
     describe_effective_proxy,
     is_proxy_error,
     is_timeout_error,
+    normalize_proxy,
     proxy_error_message,
+    resolve_route,
     timeout_error_message,
 )
 
@@ -176,17 +180,27 @@ class BatchProcessor:
         options = self.options
         options.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 代理预检：代理不通时直接给出明确提示，避免每条任务都失败并误报为“风控”
+        # 路由模式说明
+        self._log(f"路由模式: {ROUTE_MODE_LABELS.get(options.route_mode, options.route_mode)}")
+        if options.route_mode == "auto":
+            self._log("规则: 国内平台直连 · 境外站点优先用指定代理，无代理时尝试系统代理/直连")
         self._log(describe_effective_proxy(options.proxy, options.trust_env))
+
+        # 代理预检：代理不通时给出明确提示
+        proxy_ok = True
         try:
             check_proxy_reachable(options.proxy)
         except ProxyUnreachableError as exc:
+            proxy_ok = False
             self._log(f"代理检测失败: {exc}")
-            self.on_all_done(summary)
-            return summary
+            if options.route_mode == "proxy":
+                self.on_all_done(summary)
+                return summary
+            if options.route_mode == "auto":
+                self._log("已跳过代理，国内平台仍按直连处理；境外站点将无法访问。")
 
         client = DouyinClient(
-            proxy=options.proxy,
+            proxy=None,
             cookies_file=options.cookies_file,
             cookies_from_browser=options.cookies_from_browser,
             trust_env=options.trust_env,
@@ -282,6 +296,16 @@ class BatchProcessor:
             self._log(f"[{index}/{total}] 失败: {exc}")
             return TaskResult(index, str(src), "failed", str(exc))
 
+    def _apply_route(self, client: DouyinClient, route: Route) -> None:
+        """按当前任务的路由决策配置会话。"""
+        text = normalize_proxy(self.options.proxy) if route.use_proxy else ""
+        if text:
+            client.session.trust_env = False
+            client.session.proxies.update({"http": text, "https": text})
+        else:
+            client.session.trust_env = route.use_system
+            client.session.proxies.clear()
+
     def _process_one(
         self, client: DouyinClient, work_dir: Path, index: int, url: str, total: int
     ) -> TaskResult:
@@ -291,6 +315,16 @@ class BatchProcessor:
         use_builtin = options.use_builtin_parser
         if not use_builtin and platform in ("douyin", "kuaishou", "kugou"):
             platform = "generic"
+
+        # 逐条决定直连 / 走代理
+        route = resolve_route(url, options.route_mode, options.proxy)
+        if route.error:
+            self._log(f"[{index}/{total}] {route.error}")
+            return TaskResult(index, url, "failed", route.error)
+        self._log(f"[{index}/{total}] 路由: {route.reason}")
+        self._apply_route(client, route)
+        task_proxy = normalize_proxy(options.proxy) if route.use_proxy else None
+
         try:
             def _cb(done: int, done_total: int) -> None:
                 if done_total:
@@ -418,11 +452,11 @@ class BatchProcessor:
                 meta = download_generic_audio(
                     url,
                     tmp_src,
-                    proxy=options.proxy,
+                    proxy=task_proxy,
                     progress=_cb,
                     cookies_file=options.cookies_file,
                     cookies_from_browser=options.cookies_from_browser,
-                    trust_env=options.trust_env,
+                    trust_env=route.use_system,
                 )
                 title, artist, comment = meta.title, meta.artist, meta.webpage_url
                 album = meta.album or "网络音乐"

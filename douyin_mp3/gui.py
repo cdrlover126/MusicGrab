@@ -18,6 +18,7 @@ from .config import (
     ConvertOptions,
 )
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
+from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
 
 
 def _icon_path() -> Path | None:
@@ -40,7 +41,6 @@ def run_gui() -> int:
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
-            QCheckBox,
             QFileDialog,
             QFrame,
             QGridLayout,
@@ -392,18 +392,20 @@ def run_gui() -> int:
             h = QHBoxLayout(w)
             h.setContentsMargins(0, 0, 0, 0)
             h.setSpacing(10)
-            self.proxy_edit = QLineEdit()
-            self.proxy_edit.setPlaceholderText("http://127.0.0.1:7890（留空直连，境外站点必填）")
-            self.proxy_edit.setToolTip("仅当目标站点需要代理时填写，例如 http://127.0.0.1:7890")
-            self.direct_check = QCheckBox("直连")
-            self.direct_check.setChecked(True)
-            self.direct_check.setToolTip(
-                "默认直连，忽略 Windows 系统代理与 HTTP_PROXY 环境变量。\n"
-                "国内平台（抖音/快手/酷狗/B站等）直连即可。\n"
-                "如需走代理：填写上面的代理地址并取消勾选本项。"
+            self.route_box = QComboBox()
+            for key in ROUTE_MODES:
+                self.route_box.addItem(ROUTE_MODE_LABELS[key], key)
+            self.route_box.setToolTip(
+                "智能：国内平台直连，境外站点优先使用下方代理，\n"
+                "无代理时尝试系统代理/直连（境外用户亦可正常工作）。\n"
+                "全部直连：忽略系统代理，全部走直连。\n"
+                "全部代理：所有请求都走下方填写的代理。"
             )
+            self.proxy_edit = QLineEdit()
+            self.proxy_edit.setPlaceholderText("代理地址，如 http://127.0.0.1:7890（智能模式下仅境外站点使用）")
+            self.proxy_edit.setToolTip("仅当目标站点需要代理时填写，例如 http://127.0.0.1:7890")
+            h.addWidget(self.route_box, 0)
             h.addWidget(self.proxy_edit, 1)
-            h.addWidget(self.direct_check, 0)
             return w
 
         def _make_cookies_row(self) -> QWidget:
@@ -591,7 +593,8 @@ def run_gui() -> int:
                 engine=self.engine_box.currentData(),
                 delay=self.delay_spin.value() / 1.0,
                 proxy=self.proxy_edit.text().strip() or None,
-                trust_env=not self.direct_check.isChecked(),
+                route_mode=self.route_box.currentData() or "auto",
+                trust_env=False,
                 cookies_file=self.cookies_edit.text().strip() or None,
                 cookies_from_browser=self.browser_box.currentData() or None,
             )

@@ -1,12 +1,17 @@
-"""代理连通性检测与可读错误信息。
+"""代理路由决策、连通性检测与可读错误信息。
 
 `requests` 默认会继承系统代理（Windows 注册表 / HTTP_PROXY 等环境变量），
 一旦代理软件没启动，所有请求都会以「解析失败」「风控」等误导性文案失败。
-本模块负责把这类问题提前识别出来，并给出可操作的提示。
+本模块负责：
+
+1. 按目标站点决定走直连还是走代理（`resolve_route`）
+2. 提前检测代理与目标主机的连通性
+3. 把底层异常翻译成可操作的提示
 """
 from __future__ import annotations
 
 import socket
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import requests
@@ -14,6 +19,135 @@ import requests
 from .config import PROXY_TIMEOUT
 
 DEFAULT_PROXY_TIMEOUT = PROXY_TIMEOUT
+
+# ── 路由模式 ────────────────────────────────────────────────
+ROUTE_MODES = ("auto", "direct", "proxy")
+ROUTE_MODE_LABELS = {
+    "auto": "智能（按站点自动选择：国内直连 / 境外走代理）",
+    "direct": "全部直连（忽略系统代理）",
+    "proxy": "全部走代理（需先填写代理地址）",
+}
+
+# ── 境外站点域名：国内网络通常无法直连 ──────────────────────
+OVERSEAS_DOMAINS = frozenset(
+    {
+        "youtube.com", "youtu.be", "youtubekids.com", "ytimg.com",
+        "tiktok.com", "tiktokcdn.com", "tiktokv.com", "tiktokd.org",
+        "twitter.com", "x.com", "t.co", "twimg.com",
+        "instagram.com", "cdninstagram.com",
+        "facebook.com", "fb.watch", "fbcdn.net",
+        "reddit.com", "redd.it", "redditmedia.com",
+        "niconico.jp", "nicovideo.jp", "nico.ms", "nicocdn.jp",
+        "soundcloud.com", "sndcdn.com",
+        "vimeo.com", "dailymotion.com", "dai.ly",
+        "twitch.tv", "ttvnw.net", "jtvnw.net",
+        "rumble.com", "odysee.com", "odysee.tv",
+        "bandcamp.com", "mixcloud.com", "audiomack.com",
+        "spotify.com", "scdn.co", "deezer.com", "tidal.com",
+        "bilibili.tv",  # 港澳台/海外版
+    }
+)
+
+# ── 国内平台域名：CDN 全球可达，默认直连 ────────────────────
+DOMESTIC_DOMAINS = frozenset(
+    {
+        "douyin.com", "iesdouyin.com", "douyinstatic.com", "douyinpic.com",
+        "kuaishou.com", "chenzhongtech.com", "gifshow.com", "kwai.com",
+        "kugou.com", "kgimg.com", "kugou.net",
+        "bilibili.com", "b23.tv", "bilivideo.com", "hdslb.com", "biliapi.net",
+        "weibo.com", "weibocdn.com", "sinaimg.cn", "sina.com.cn",
+        "music.163.com", "126.net", "netease.com",
+        "y.qq.com", "qq.com", "gtimg.cn",
+        "ixigua.com", "toutiao.com", "byteimg.com", "pstatp.com",
+        "xiaohongshu.com", "xhslink.com", "xhscdn.com",
+        "youku.com", "iqiyi.com", "v.qq.com", "mgtv.com", "funshine.cn",
+        "acfun.cn", "acfun.tv", "zhihu.com", "douban.com",
+        "cnblogs.com", "csdn.net", "gitee.com",
+    }
+)
+
+
+def _host_matches(host: str, domains: frozenset[str]) -> bool:
+    host = (host or "").lower()
+    if not host:
+        return False
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def host_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool:
+    """快速探测目标主机 TCP 是否可达（用于境外站点的直连可行性判断）。"""
+    if not host:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+@dataclass(frozen=True)
+class Route:
+    """一条任务的路由决策。
+
+    - `use_proxy`  : 显式走「代理」框中填写的代理
+    - `use_system` : 跟随系统/环境代理（仅在无显式代理时生效）
+    """
+
+    use_proxy: bool
+    reason: str
+    error: str = ""
+    use_system: bool = False
+
+
+def _system_proxy_exists() -> bool:
+    try:
+        env = requests.utils.get_environ_proxies("https://www.youtube.com")
+    except Exception:
+        return False
+    return any(env.get(k) for k in ("http", "https"))
+
+
+def resolve_route(url: str, mode: str = "auto", proxy: str | None = None) -> Route:
+    """根据 URL、路由模式与代理配置，决定该任务走直连还是走代理。
+
+    - `auto`（默认）：
+        * 国内平台 → 直连（CDN 全球可达，对国内与境外用户都成立）
+        * 境外站点 → 有显式代理走代理；否则先探测直连可达性；
+          直连不通但系统有代理则跟随系统代理；两者都没有时给出「需要配置代理」的提示
+    - `direct`：全部直连，忽略系统代理
+    - `proxy`  ：全部走「代理」框中填写的代理
+    """
+    mode = (mode or "auto").strip().lower()
+    text = normalize_proxy(proxy)
+    has_proxy = bool(text)
+
+    if mode == "direct":
+        return Route(False, "强制直连（忽略系统代理）")
+    if mode == "proxy":
+        if not has_proxy:
+            return Route(False, "", "已选择「全部走代理」但未填写代理地址，请在「代理」中填写")
+        return Route(True, f"全部走代理 {text}")
+
+    host = (urlparse(url).hostname or "").lower()
+    if _host_matches(host, OVERSEAS_DOMAINS):
+        if has_proxy:
+            return Route(True, f"境外站点 {host}，使用代理 {text}")
+        if host_reachable(host):
+            return Route(False, f"境外站点 {host} 直连可达（当前网络无需代理）")
+        if _system_proxy_exists():
+            return Route(
+                False,
+                f"境外站点 {host} 直连不通，跟随系统代理",
+                use_system=True,
+            )
+        return Route(
+            False,
+            "",
+            f"境外站点 {host} 在当前网络下不可达，请在「代理」中填写代理地址后重试",
+        )
+    if _host_matches(host, DOMESTIC_DOMAINS):
+        return Route(False, f"国内平台 {host}，直连")
+    return Route(False, f"直连 {host or '未知域名'}")
 
 
 class ProxyUnreachableError(RuntimeError):

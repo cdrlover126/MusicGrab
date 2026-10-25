@@ -152,6 +152,7 @@ class ConvertOptions:
     keep_temp: bool = False
     proxy: str | None = None
     trust_env: bool = False
+    route_mode: str = "auto"
     ffmpeg_path: str | None = None
     cookies_file: str | None = None
     cookies_from_browser: str | None = None
