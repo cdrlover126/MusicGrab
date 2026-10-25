@@ -10,6 +10,7 @@ import requests
 
 from .config import MOBILE_UA, REQUEST_TIMEOUT
 from .cookies import load_requests_cookies
+from .proxy import build_session
 
 
 KUGOU_DOMAINS = ("kugou.com",)
@@ -175,9 +176,10 @@ class KugouClient:
         *,
         cookies_file: str | None = None,
         cookies_from_browser: str | None = None,
+        trust_env: bool = True,
     ):
         self.timeout = timeout
-        self.session = requests.Session()
+        self.session = build_session(proxy, trust_env=trust_env)
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -186,8 +188,6 @@ class KugouClient:
                 "Referer": "https://www.kugou.com/",
             }
         )
-        if proxy:
-            self.session.proxies.update({"http": proxy, "https": proxy})
         load_requests_cookies(
             self.session,
             cookies_file=cookies_file,

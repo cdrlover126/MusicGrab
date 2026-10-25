@@ -27,6 +27,7 @@ REQUEST_TIMEOUT = 30
 DOWNLOAD_TIMEOUT = 120
 MAX_RETRIES = 3
 DELAY_BETWEEN_TASKS = 1.5
+PROXY_TIMEOUT = 3.0
 
 
 @dataclass(frozen=True)
@@ -150,6 +151,7 @@ class ConvertOptions:
     max_retries: int = MAX_RETRIES
     keep_temp: bool = False
     proxy: str | None = None
+    trust_env: bool = True
     ffmpeg_path: str | None = None
     cookies_file: str | None = None
     cookies_from_browser: str | None = None

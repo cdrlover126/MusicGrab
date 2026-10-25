@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert.add_argument("--proxy", default=None, help="代理，如 http://127.0.0.1:7890")
     convert.add_argument(
+        "--direct",
+        action="store_true",
+        help="强制直连，忽略系统/环境变量中的代理（代理软件没开时使用）",
+    )
+    convert.add_argument(
         "--cookies",
         default=None,
         help="cookies 文件（Netscape 格式，用于西瓜/小红书/QQ音乐等需登录站点）",
@@ -93,6 +98,7 @@ def run_convert(args: argparse.Namespace) -> int:
         audio_source=args.source,
         engine=args.engine,
         proxy=args.proxy,
+        trust_env=not args.direct,
         ffmpeg_path=args.ffmpeg,
         skip_existing=args.skip_existing,
         delay=args.delay,

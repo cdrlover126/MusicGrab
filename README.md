@@ -31,7 +31,7 @@
 - **输出格式可选**：MP3 / WAV / FLAC / M4A / AAC / OGG / Opus / WMA，MP3 写 ID3v2.3（车机兼容最好），其余写各容器原生标签
 - **车机兼容**：44.1kHz 双声道、文件名自动编号、ID3v2.3 标签（歌名/歌手/专辑/来源注释）
 - **登录站点支持**：`--cookies`（Netscape 格式）或 `--cookies-from-browser`（edge/chrome/firefox/chromium/brave/opera）
-- **代理支持**：`--proxy`，适用于境外站点或网络受限场景
+- **代理支持**：`--proxy`，适用于境外站点或网络受限场景；启动前**预检代理连通性**，代理不通会立即给出明确提示（不再误报为“风控”）；可用「强制直连」忽略系统代理
 - **内置 ffmpeg**：使用 `imageio-ffmpeg`，开箱即用无需手动配置
 - **稳健处理**：防风控间隔、失败自动重试、文件重名自动编号、转换 CSV 报告
 - **双界面**：图形界面（PySide6）+ 命令行（`douyin-mp3`）
@@ -119,6 +119,7 @@ douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
 | `--engine` | `auto` | `auto`（智能选择）/`douyin`（强制内置：抖音、快手）/`generic`（强制 yt-dlp） |
 | `-o, --output` | `~/Music/MusicGrab` | 输出目录（会自动创建） |
 | `--proxy` | 空 | 代理地址，如 `http://127.0.0.1:7890`、`socks5://127.0.0.1:7891` |
+| `--direct` | 否 | 强制直连，忽略系统/环境变量中的代理（代理软件没开时使用） |
 | `--cookies` | 空 | `cookies.txt` 路径（需为 Netscape 格式） |
 | `--cookies-from-browser` | 空 | 从浏览器提取 cookies：`edge`、`chrome`、`firefox`、`chromium`、`brave`、`opera`、`vivaldi` 等 |
 | `--ffmpeg` | 空（自动） | 指定自定义 `ffmpeg.exe` 路径，默认优先使用 `imageio-ffmpeg` 内置 |
@@ -153,6 +154,8 @@ douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
 | **“需 cookies” / 登录相关报错** | 西瓜、小红书、QQ 音乐等站点需登录态 | 完全退出浏览器后用 `--cookies-from-browser <浏览器名>`，或导出 Netscape 格式 `cookies.txt` 并用 `--cookies` 指定 |
 | **酷狗提示“VIP/付费歌曲”** | 该曲目为酷狗 VIP/付费内容，未登录不返回播放地址 | 登录酷狗后导出 cookies，用 `--cookies-from-browser edge` 或 `--cookies cookies.txt` 重试 |
 | **境外站点超时（YouTube/TikTok/X/Instagram）** | 本机直连境外网络不可用 | 配置代理（如 Clash/V2rayN）后设置 `--proxy http://127.0.0.1:7890`（以实际端口为准） |
+| **“代理无法连接”** | 代理软件没启动 / 端口填错 | 启动代理软件并确认端口（Clash 默认 7890、v2rayN 常见 10809/10089）；或清空「代理」并勾选**强制直连**。程序会在开始前预检代理并立即提示，不再逐条重试 |
+| **提示“继承系统/环境代理”** | Windows 系统代理或 `HTTP_PROXY` 环境变量生效中 | 若不想走代理，勾选**强制直连**（CLI 加 `--direct`）即可忽略 |
 | **读取浏览器 cookies 失败** | 浏览器未完全退出、加密存储、权限受限 | 关闭所有浏览器进程（检查任务管理器），以当前用户权限运行程序，再重试 |
 | **转码报错 / 找不到 ffmpeg** | 环境异常或自定义路径错误 | 默认已用 `imageio-ffmpeg`，如仍报错可用 `--ffmpeg "C:\path\to\ffmpeg.exe"` 手动指定 |
 | **音质偏低 / 只能提取试听片段** | 平台限制或仅提供低码率音轨 | 部分平台确实只提供预览音频，换其他链接或站点可能会有更好选择 |

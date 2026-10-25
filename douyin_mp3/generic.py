@@ -29,6 +29,7 @@ def _build_opts(
     progress: ProgressCallback | None,
     cookies_file: str | None = None,
     cookies_from_browser: str | None = None,
+    trust_env: bool = True,
 ) -> dict:
     opts: dict = {
         "format": "bestaudio/best",
@@ -44,6 +45,9 @@ def _build_opts(
     }
     if proxy:
         opts["proxy"] = proxy
+    elif not trust_env:
+        # 忽略系统/环境变量中的代理，强制直连（yt-dlp 中空串表示不使用代理）
+        opts["proxy"] = ""
     if cookies_file:
         opts["cookiefile"] = str(Path(cookies_file).expanduser())
     browser = normalize_browser(cookies_from_browser)
@@ -85,6 +89,7 @@ def download_generic_audio(
     progress: ProgressCallback | None = None,
     cookies_file: str | None = None,
     cookies_from_browser: str | None = None,
+    trust_env: bool = True,
 ) -> GenericMeta:
     """用 yt-dlp 下载任意支持站点的最佳音轨到 dest，返回元数据。"""
     try:
@@ -96,7 +101,9 @@ def download_generic_audio(
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest_base = dest.with_suffix("")
-    opts = _build_opts(dest_base, proxy, progress, cookies_file, cookies_from_browser)
+    opts = _build_opts(
+        dest_base, proxy, progress, cookies_file, cookies_from_browser, trust_env=trust_env
+    )
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:

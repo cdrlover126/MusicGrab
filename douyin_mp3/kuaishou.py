@@ -11,6 +11,7 @@ import requests
 
 from .config import MOBILE_UA, REQUEST_TIMEOUT
 from .cookies import load_requests_cookies
+from .proxy import build_session
 
 KUAISHOU_DOMAINS = (
     "kuaishou.com",
@@ -193,14 +194,13 @@ class KuaishouClient:
         *,
         cookies_file: str | None = None,
         cookies_from_browser: str | None = None,
+        trust_env: bool = True,
     ):
         self.timeout = timeout
-        self.session = requests.Session()
+        self.session = build_session(proxy, trust_env=trust_env)
         self.session.headers.update(
             {"User-Agent": MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9"}
         )
-        if proxy:
-            self.session.proxies.update({"http": proxy, "https": proxy})
         load_requests_cookies(
             self.session,
             cookies_file=cookies_file,

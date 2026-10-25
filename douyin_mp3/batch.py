@@ -37,6 +37,13 @@ from .parser import (
     classify_platform,
     extract_urls,
 )
+from .proxy import (
+    ProxyUnreachableError,
+    check_proxy_reachable,
+    describe_effective_proxy,
+    is_proxy_error,
+    proxy_error_message,
+)
 
 
 @dataclass
@@ -84,6 +91,7 @@ class BatchProcessor:
                 proxy=self.options.proxy,
                 cookies_file=self.options.cookies_file,
                 cookies_from_browser=self.options.cookies_from_browser,
+                trust_env=self.options.trust_env,
             )
         return self._kuaishou
 
@@ -93,6 +101,7 @@ class BatchProcessor:
                 proxy=self.options.proxy,
                 cookies_file=self.options.cookies_file,
                 cookies_from_browser=self.options.cookies_from_browser,
+                trust_env=self.options.trust_env,
             )
         return self._kugou
 
@@ -164,10 +173,21 @@ class BatchProcessor:
 
         options = self.options
         options.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 代理预检：代理不通时直接给出明确提示，避免每条任务都失败并误报为“风控”
+        self._log(describe_effective_proxy(options.proxy))
+        try:
+            check_proxy_reachable(options.proxy)
+        except ProxyUnreachableError as exc:
+            self._log(f"代理检测失败: {exc}")
+            self.on_all_done(summary)
+            return summary
+
         client = DouyinClient(
             proxy=options.proxy,
             cookies_file=options.cookies_file,
             cookies_from_browser=options.cookies_from_browser,
+            trust_env=options.trust_env,
         )
         work_dir = temp_dir() / uuid.uuid4().hex[:8]
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -288,6 +308,10 @@ class BatchProcessor:
                         break
                     except (DouyinParseError, requests.RequestException) as exc:
                         last_error = exc
+                        if is_proxy_error(exc):
+                            msg = proxy_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
@@ -317,6 +341,10 @@ class BatchProcessor:
                         break
                     except (KuaishouParseError, requests.RequestException) as exc:
                         last_error = exc
+                        if is_proxy_error(exc):
+                            msg = proxy_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 快手解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
@@ -345,6 +373,10 @@ class BatchProcessor:
                         break
                     except (KugouParseError, requests.RequestException) as exc:
                         last_error = exc
+                        if is_proxy_error(exc):
+                            msg = proxy_error_message(exc, options.proxy)
+                            self._log(f"[{index}/{total}] {msg}")
+                            return TaskResult(index, url, "failed", msg)
                         self._log(f"[{index}/{total}] 酷狗解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
@@ -376,6 +408,7 @@ class BatchProcessor:
                     progress=_cb,
                     cookies_file=options.cookies_file,
                     cookies_from_browser=options.cookies_from_browser,
+                    trust_env=options.trust_env,
                 )
                 title, artist, comment = meta.title, meta.artist, meta.webpage_url
                 album = meta.album or "网络音乐"

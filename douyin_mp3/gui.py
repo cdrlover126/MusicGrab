@@ -40,6 +40,7 @@ def run_gui() -> int:
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
+            QCheckBox,
             QFileDialog,
             QFrame,
             QGridLayout,
@@ -387,10 +388,21 @@ def run_gui() -> int:
             return w
 
         def _make_proxy_row(self) -> QWidget:
+            w = QWidget()
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(10)
             self.proxy_edit = QLineEdit()
             self.proxy_edit.setPlaceholderText("http://127.0.0.1:7890（留空直连，境外站点必填）")
             self.proxy_edit.setToolTip("仅当目标站点需要代理时填写，例如 http://127.0.0.1:7890")
-            return self.proxy_edit
+            self.direct_check = QCheckBox("强制直连")
+            self.direct_check.setToolTip(
+                "勾选后忽略系统/环境变量中的代理。\n"
+                "代理软件没启动时若报「代理无法连接」，可勾选此项重试。"
+            )
+            h.addWidget(self.proxy_edit, 1)
+            h.addWidget(self.direct_check, 0)
+            return w
 
         def _make_cookies_row(self) -> QWidget:
             w = QWidget()
@@ -577,6 +589,7 @@ def run_gui() -> int:
                 engine=self.engine_box.currentData(),
                 delay=self.delay_spin.value() / 1.0,
                 proxy=self.proxy_edit.text().strip() or None,
+                trust_env=not self.direct_check.isChecked(),
                 cookies_file=self.cookies_edit.text().strip() or None,
                 cookies_from_browser=self.browser_box.currentData() or None,
             )
