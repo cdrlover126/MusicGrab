@@ -1,0 +1,108 @@
+"""打包 CSDN 资源上传用的发布物料（开发工具）。
+
+产出: dist/release/MusicGrab-v1.6.0-win-x64.zip
+      dist/release/发布说明.md
+      dist/release/SHA256SUMS.txt
+"""
+from __future__ import annotations
+
+import hashlib
+import shutil
+import zipfile
+from pathlib import Path
+
+root = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
+version = "1.6.0"
+rel = root / "dist" / "release"
+rel.mkdir(parents=True, exist_ok=True)
+
+exe = root / "dist" / "MusicGrab.exe"
+if not exe.exists():
+    raise SystemExit("未找到 dist\\MusicGrab.exe，请先运行 packaging\\build_exe.ps1")
+
+stage = rel / "MusicGrab-v1.6.0-win-x64"
+if stage.exists():
+    shutil.rmtree(stage)
+stage.mkdir(parents=True)
+
+# 应用本体
+shutil.copy2(exe, stage / "MusicGrab.exe")
+
+# 文档
+for name in ("README.md", "LICENSE"):
+    src = root / name
+    if src.exists():
+        shutil.copy2(src, stage / name)
+
+# 使用说明
+usage = """乐取 MusicGrab v1.6.0 —— 使用说明
+================================
+
+【这是什么】
+一个把各平台视频/音乐链接里的音轨批量提取、转换为车机可直接播放的音频文件的
+Windows 桌面工具。同时支持直接处理本地视频文件。
+
+【快速开始】
+1. 双击 MusicGrab.exe（单文件，免安装，无需 Python 环境）
+2. 在上方文本框粘贴链接，每行一条
+   - 抖音：v.douyin.com/xxx/ 或 www.douyin.com/video/123 或 ?modal_id=123
+   - 快手：v.kuaishou.com/xxx
+   - 酷狗：www.kugou.com/mixsong/xxx.html
+   - B站/微博/网易云/YouTube 等：直接贴链接
+3. 点「开始转换」，结果默认输出到  C:\\Users\\<你的用户名>\\Music\\MusicGrab
+4. 需要换目录/格式/音质，在「输出设置」页调整
+
+【处理本地视频】
+点「添加本地文件…」选择视频（mp4/mkv/mov/avi/flv/wmv/webm/ts/rmvb/mpg…），
+会直接提取音轨转成音频，不需要联网。
+
+【关于代理】
+默认「智能」模式：国内平台直连，境外站点（YouTube/TikTok/X 等）自动走代理。
+如果访问不了境外站点，在「输出设置 → 代理」填入代理地址，例如 http://127.0.0.1:7890。
+境外的用户请用「全部直连」模式。
+
+【输出格式】
+MP3（车机首选，ID3v2.3）/ WAV / FLAC / M4A / AAC / OGG / Opus / WMA
+默认 MP3 320kbps，44.1kHz 立体声。
+
+【常见问题】
+- 提示「代理无法连接」：代理软件没启动或端口不对，用「全部直连」或填正确地址
+- 提示「境外站点不可达」：需要配置代理
+- 提示「VIP/付费歌曲」：该曲目为平台付费内容，未登录无法下载
+- 抖音提示「页面结构未找到视频数据」：平台风控，程序会自动重试，可稍后再试
+- 杀毒软件误报：PyInstaller 打包的常见误报，可加信任
+
+【重要声明】
+本工具仅供个人学习、研究与非商业用途使用。
+使用者需自行遵守所访问平台的服务条款及所在地法律法规，
+由此产生的任何法律责任由使用者自行承担。
+"""
+( stage / "使用说明.txt").write_text(usage, encoding="utf-8")
+
+# 打包
+zip_path = rel / f"MusicGrab-v{version}-win-x64.zip"
+if zip_path.exists():
+    zip_path.unlink()
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    for p in sorted(stage.rglob("*")):
+        if p.is_file():
+            zf.write(p, p.relative_to(stage))
+shutil.rmtree(stage)
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+sums = f"{sha256(zip_path)}  {zip_path.name}\n"
+(rel / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
+
+print("发布包:", zip_path)
+print("大小: %.1f MB" % (zip_path.stat().st_size / 1024 / 1024))
+print("SHA256:", sha256(zip_path))
+print("EXE SHA256:", sha256(exe))
+print("EXE 大小: %.1f MB" % (exe.stat().st_size / 1024 / 1024))
