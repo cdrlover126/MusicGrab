@@ -37,7 +37,17 @@ for name in ("README.md", "LICENSE"):
 # 发布说明（从 docs/releases 同步，作为资源详情页的底稿）
 release_notes = root / "docs" / "releases" / f"v{version}.md"
 if release_notes.exists():
-    shutil.copy2(release_notes, stage / "发布说明.md")
+    import re
+
+    text = release_notes.read_text(encoding="utf-8")
+    # zip 内不能写 zip 自身的 SHA256（自引用会导致校验值永远对不上），
+    # 改为指向包外的 SHA256SUMS.txt；exe 的校验值不受影响，原样保留。
+    text = re.sub(
+        r"(SHA256 \(发布包[^)]*\)\s*[:：]\s*\n)`?[0-9a-f]{64}`?",
+        r"\1见发布包同级的 SHA256SUMS.txt（写进包内会形成自引用）",
+        text,
+    )
+    (stage / "发布说明.md").write_text(text, encoding="utf-8")
 
 # 使用说明
 usage = """乐取 MusicGrab v1.8.0 —— 使用说明
@@ -56,6 +66,7 @@ Windows 桌面工具。同时支持直接处理本地视频文件。
    - B站/微博/网易云/YouTube 等：直接贴链接
 3. 点「开始转换」，结果默认输出到  C:\\Users\\<你的用户名>\\Music\\MusicGrab
 4. 需要换目录/格式/音质，在「输出设置」页调整
+5. 完成后切到「任务结果」页查看每条状态，右键可重试/打开文件
 
 【处理本地视频】
 点「添加本地文件…」选择视频（mp4/mkv/mov/avi/flv/wmv/webm/ts/rmvb/mpg…），
@@ -67,8 +78,25 @@ Windows 桌面工具。同时支持直接处理本地视频文件。
 境外的用户请用「全部直连」模式。
 
 【输出格式】
-MP3（车机首选，ID3v2.3）/ WAV / FLAC / M4A / AAC / OGG / Opus / WMA
+MP3 / M4A / Opus / FLAC / WAV / BEST（源格式不转码）
+- MP3：车机首选，写 ID3v2.3 标签
+- M4A / Opus：有损压缩，体积更小
+- FLAC / WAV：无损，体积较大
+- BEST：直接复制源音轨，不转码、零损失；扩展名随源音频编码
 默认 MP3 320kbps，44.1kHz 立体声。
+
+【音质】
+V0（LAME 最佳 VBR，推荐）/ 320 / 256 / 192 / 128 / 96 kbps 固定码率。
+FLAC / WAV / BEST 会自动忽略码率设置。
+
+【封面嵌入】
+抖音 / 快手 / 酷狗 / B站等会自动抓取平台封面并写入音频；本地视频抽取第一帧。
+MP3 / M4A / FLAC 支持封面；WAV / Opus 容器不支持，会自动跳过（不影响音频）。
+
+【任务结果与重试】
+转换完成后切到「任务结果」页，逐条显示成功/失败、标题、时长、大小与输出文件。
+右键单条可「重试此任务」「打开文件」「打开所在文件夹」「复制来源地址」；
+顶部「重试全部失败项」可一键重跑，文件名序号保持不变。
 
 【组件自检与在线升级】
 程序内置的 yt-dlp 与 ffmpeg 是打包时冻结的副本，不会自动更新。

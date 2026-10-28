@@ -1161,7 +1161,7 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`ab065eb9207f58b87454341f2afe048df3fbbc0b8982feecf3e73eb8234d52bb`
+> SHA256（发布包）：`a4ab5b96feb4831cbc1d648a176aec0f7884f26159b76d974cf4fafcc9597114`
 > SHA256（exe）：`ee45b5262def7b0217564288bd8b69a98d41f8188bd740bb2a62b9d0ff93cf17`
 
 ### 快速上手
