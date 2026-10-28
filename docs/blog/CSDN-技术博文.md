@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 137 个单元测试的组织方式
+- 全部源码结构与 146 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 137 个单元测试
+├── tests/               # 146 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -419,8 +419,41 @@ v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似�
 
 1. **Qt 默认会把本地文件插成 `file:///` URL**，而 `collect_local_files()` 明确跳过含 `://` 的行——于是"看起来拖进去了，实际一条都没处理"。必须自己解析 `QMimeData.urls()`，用 `toLocalFile()` 转回本地路径。
 2. **文件夹要递归**：用户拖进来的往往是一整个专辑目录。用 `os.walk` 过滤扩展名，跳过隐藏目录 / 回收站 / `__MACOSX` / `node_modules`，并设 2000 个上限，防止误拖整个磁盘把界面卡死。
-3. **别只信 `QMimeData.urls()`**：这是 v1.8.0 上线后用户实测"拖标签页没反应"查出来的真凶。Chrome / Edge 拖标签页给的是原始 `text/uri-list`，某些来源下 Qt 的 `urls()` 会解析成空列表——于是代码"看起来处理了"，实际一条都没导入。现在改为把三种来源全解析一遍：`text/uri-list`（Chrome / Edge / 资源管理器）、`text/x-moz-url`（Firefox）、以及纯文本网址。
-4. **拖放事件会被子控件吞掉**：把标签页拖到「详情日志」这类只读文本框上时，事件被子控件的默认逻辑消费，主窗口根本收不到。解决办法是在**应用层**装一个事件过滤器，只要拖放内容里能识别出链接或路径就统一接管——拖到窗口任意位置都能导入。
+3. **别只信 `QMimeData.urls()`**：这是 v1.8.0 上线后用户实测"拖标签页没反应"查出来的真凶之一。Chrome / Edge 拖标签页给的是原始 `text/uri-list`，Chromium 还会用 `text/uri-list;charset=utf-8` 这种**带参数**的格式名——与 Qt 精确匹配的 `text/uri-list` 不是一回事，`hasFormat()` 会返回 False，`urls()` 也会是空列表。现在改为把各种来源全解析一遍：`text/uri-list`、`text/uri-list;charset=utf-8`、`text/x-moz-url`（Firefox）、以及纯文本网址。
+4. **Qt 会把拖放交给「第一个 acceptDrops 的控件」**——这才是"拖进程序没反应"的**真正元凶**。Qt 的 `findDnDTarget()` 从光标处的子控件开始向上找，**谁第一个 `acceptDrops()` 就是接收方**。而 `QLineEdit`、`QPlainTextEdit`、`QTextEdit` **默认都是 `acceptDrops=True`**：拖到日志框（只读）上 → 事件被它吃掉，什么也没发生；拖到"输出目录"输入框上 → 网址被当成文本插进了那个框。
+
+   ```cpp
+   // Qt 源码：src/widgets/kernel/qwidgetwindow.cpp
+   static QWidget *findDnDTarget(QWidget *parent, const QPointF &pos)
+   {
+       QWidget *widget = parent->childAt(pos);
+       if (!widget) widget = parent;
+       for ( ; widget && !widget->isWindow() && !widget->acceptDrops();
+             widget = widget->parentWidget() ) ;
+       if (widget && !widget->acceptDrops()) widget = nullptr;
+       return widget;
+   }
+   ```
+
+   解决办法很直接：**关掉除输入框外所有子控件的拖放接收**，让主窗口成为唯一的接收方：
+
+   ```python
+   def disable_child_drops(window, keep=()) -> int:
+       """QLineEdit / QPlainTextEdit 默认 acceptDrops=True，会把拖放截胡。"""
+       changed = 0
+       for widget in window.findChildren(QWidget):
+           if widget in keep:
+               continue
+           if widget.acceptDrops():
+               widget.setAcceptDrops(False)
+               changed += 1
+       return changed
+
+   # 主窗口初始化时调用，只保留输入框
+   disable_child_drops(self, keep=(self.links_edit,))
+   ```
+
+> 顺带一提：一开始我用的是"应用层事件过滤器"（`app.installEventFilter`）想统一接管拖放，**但那是无效的**——Qt 的 `QGuiApplication::forwardEvent()` 是直接调 `receiver->event(event)`，**不经过应用层事件过滤器**。所以只有控件自己实现的 `dragEnterEvent` / `dropEvent` 才会收到真实拖放。
 
 ```python
 def parse_drop_data(mime) -> DropPayload:
@@ -442,24 +475,8 @@ def parse_drop_data(mime) -> DropPayload:
             links.append(line)
     # 3) Firefox 的 text/x-moz-url：第一行网址，第二行标题
     # 4) 纯文本：extract_urls(text)
+    # 5) 兜底：扫描所有格式（覆盖 text/uri-list;charset=utf-8 这类自定义名）
     return DropPayload(links=links, paths=paths)
-```
-
-窗口级拦截器则更朴素——只要目标在本窗口内且内容可识别，就直接接管：
-
-```python
-def eventFilter(self, obj, event) -> bool:
-    if event.type() not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
-        return False
-    if not self._window.isAncestorOf(obj):
-        return False
-    if not is_drop_supported(event.mimeData()):
-        return False
-    event.setDropAction(Qt.CopyAction)
-    event.accept()
-    if event.type() == QEvent.Drop:
-        self._window.handle_drop(event.mimeData())
-    return True
 ```
 
 去重同时按 URL 与 `os.path.normcase(os.path.abspath(path))` 做，避免同一文件因大小写或相对路径不同被导入两次。另加了「添加文件夹…」按钮，方便不习惯拖放的用户。
@@ -845,11 +862,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-137 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式，以及组件升级的版本比对与安全解压：
+146 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-137 passed in 1.82s
+146 passed in 1.74s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1211,8 +1228,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`78ac99cdc0c688bb5967f1430048286fec21945c1dac89ff9e633f0f3fed7d39`
-> SHA256（exe）：`4ccf550268adbb1d3753c157f0e64aa7d33009a24887e69b59885640fba1678b`
+> SHA256（发布包）：`e377dd30498cf2a88d6928940efac5b4022d2ddae451d3b82913700bbfa2eeb3`
+> SHA256（exe）：`24bc0606c638de392907707b0128db09e823dbfa59b32b047ae3d6e234a9a7da`
 
 ### 快速上手
 

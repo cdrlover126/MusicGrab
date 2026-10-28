@@ -41,9 +41,33 @@ def _icon_path() -> Path | None:
     return None
 
 
+def disable_child_drops(window, keep=()) -> int:
+    """关掉子控件的拖放接收，只保留白名单里的控件。
+
+    ``QLineEdit`` / ``QPlainTextEdit`` / ``QTextEdit`` 默认 ``acceptDrops=True``。
+    而 Qt 的 ``findDnDTarget()`` 会把拖放交给「从光标处向上第一个 acceptDrops 的
+    控件」——于是把标签页拖到日志框、输出目录等输入框上时，事件被这些控件截胡，
+    主窗口根本收不到，表现就是「拖进程序里没反应」。
+
+    关掉它们的接收之后，整个窗口都由主窗口统一接管拖放。
+    返回被改动的控件数量。
+    """
+    from PySide6.QtWidgets import QWidget  # 延迟导入：未装 PySide6 也能用命令行模式
+
+    keep_ids = {id(w) for w in keep}
+    changed = 0
+    for widget in window.findChildren(QWidget):
+        if id(widget) in keep_ids:
+            continue
+        if widget.acceptDrops():
+            widget.setAcceptDrops(False)
+            changed += 1
+    return changed
+
+
 def run_gui() -> int:
     try:
-        from PySide6.QtCore import Qt, QObject, QEvent, QTimer, QUrl, Signal
+        from PySide6.QtCore import Qt, QObject, QTimer, QUrl, Signal
         from PySide6.QtGui import QDesktopServices, QFont
         from PySide6.QtWidgets import (
             QAbstractItemView,
@@ -115,44 +139,6 @@ def run_gui() -> int:
                 self._on_drop(event.mimeData())
             else:
                 super().dropEvent(event)
-
-    class DropWatcher(QObject):
-        """窗口级拖放拦截。
-
-        浏览器标签页拖动时，拖放事件可能落在日志框、结果表格等子控件上被
-        默认逻辑吞掉，用户表现为「拖进来没反应」。这里在应用层统一拦截，
-        只要拖放内容里能识别出链接或本地路径，就由主窗口接管。
-        """
-
-        def __init__(self, window) -> None:
-            super().__init__(window)
-            self._window = window
-
-        def _belongs_to_window(self, obj) -> bool:
-            try:
-                return obj is self._window or self._window.isAncestorOf(obj)
-            except Exception:  # noqa: BLE001
-                return False
-
-        def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
-            etype = event.type()
-            if etype not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
-                return False
-            if not self._belongs_to_window(obj):
-                return False
-            mime = event.mimeData()
-            if etype == QEvent.Drop:
-                if not is_drop_supported(mime):
-                    return False
-                event.setDropAction(Qt.CopyAction)
-                event.accept()
-                self._window.handle_drop(mime)
-                return True
-            if is_drop_supported(mime):
-                event.setDropAction(Qt.CopyAction)
-                event.accept()
-                return True
-            return False
 
     class WorkerSignals(QObject):
         """批量转换的结果投递通道。"""
@@ -679,6 +665,11 @@ def run_gui() -> int:
             shell.setLayout(root)
             self.setCentralWidget(shell)
             self._fit_tabs()
+
+            # 除输入框外，关掉所有子控件的拖放接收：
+            # QLineEdit / QPlainTextEdit 默认 acceptDrops=True，会把拖放截胡，
+            # 导致「拖标签页进程序没反应」。关掉后由主窗口统一接管。
+            disable_child_drops(self, keep=(self.links_edit,))
 
             # 组件自检（启动后异步进行，不阻塞界面）
             self._pending_updates: list = []
@@ -1443,9 +1434,5 @@ def run_gui() -> int:
         from PySide6.QtGui import QIcon
 
         window.setWindowIcon(QIcon(str(icon_file)))
-    # 窗口级拖放拦截：拖到日志框 / 结果表格等子控件上也能被接住
-    drop_watcher = DropWatcher(window)
-    app.installEventFilter(drop_watcher)
-    window._drop_watcher = drop_watcher  # 保持引用，避免被回收
     window.show()
     return app.exec()

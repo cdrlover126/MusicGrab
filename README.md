@@ -224,9 +224,12 @@ douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效�
 所有导入方式都会按 URL / 绝对路径自动去重，并可和手动粘贴的链接混在一起批量处理。
 
 > 拖放兼容性说明：程序不只依赖 Qt 的 `QMimeData.urls()`，而是同时解析
-> `text/uri-list`（Chrome / Edge / 资源管理器）、`text/x-moz-url`（Firefox）与
-> 纯文本网址三种来源，并在**窗口层面**统一拦截拖放事件——拖到日志框、结果表格等
-> 任意子控件上都能被接住，不会出现「拖进去没反应」。
+> `text/uri-list`（Chrome / Edge / 资源管理器）、`text/uri-list;charset=utf-8`
+> （Chromium 自定义格式）、`text/x-moz-url`（Firefox）与纯文本网址四种来源。
+> 另外 Qt 会把拖放交给「从光标处向上第一个 `acceptDrops` 的控件」，
+> 而 `QLineEdit` / `QPlainTextEdit` 默认都会接收拖放——日志框、输出目录输入框
+> 会把拖放截胡，表现为「拖进程序没反应」。程序因此关掉了除输入框外所有子控件的
+> 拖放接收，由主窗口统一接管：**拖到窗口任意位置都能导入**。
 
 **转换报告**：每次批量结束会在输出目录写一份 CSV（序号 / 状态 / 标题 / 歌手 / 时长 / 大小 / 输出文件 / 来源 / 说明）。
 默认**覆盖同名文件** `转换报告.csv`，输出目录里最多只留一份，不会越用越多；
@@ -364,7 +367,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ## 7. 测试、文档与发布
 
 ```powershell
-# 运行单元测试（137 个）
+# 运行单元测试（146 个）
 pytest tests -q
 ```
 

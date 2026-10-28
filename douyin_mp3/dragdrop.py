@@ -10,9 +10,15 @@ Firefox       ``text/x-moz-url``（第一行网址、第二行标题）
 资源管理器     ``text/uri-list``（``file:///`` 本地路径）
 ===========  ==========================================================
 
-Qt 的 ``QMimeData.urls()`` 在部分来源上会解析失败（结果为空列表），
-于是「拖进来没反应」。因此这里不依赖它，而是把上述原始格式全部自行解析一遍，
-并保留 ``urls()`` 作为兜底，保证任何一种来源都能被识别。
+另外两个现实坑：
+
+* Chromium 会把网址列表注册成 ``text/uri-list;charset=utf-8`` 这种**带参数**的格式名，
+  与 Qt 精确匹配的 ``text/uri-list`` 不是一回事——``hasFormat()`` 会返回 False，
+  ``urls()`` 也会是空列表。
+* 有的来源只给纯文本（CF_UNICODETEXT），没有 urls / uri-list。
+
+因此这里不依赖 Qt 的 ``QMimeData.urls()``，而是把 mime 里**所有**可读格式
+都自行解码一遍再找网址，保证任何一种来源都能被识别。
 """
 
 from __future__ import annotations
@@ -29,8 +35,33 @@ from .parser import extract_urls
 URL_LIST_MIME = "text/uri-list"
 #: Firefox 标签页拖动
 MOZ_URL_MIMES = ("text/x-moz-url", "application/x-moz-url")
+#: 形如 "text/uri-list;charset=utf-8" 的格式，按基础名归类
+URLISH_FORMAT_BASES = frozenset(
+    {
+        "text/uri-list",
+        "text/x-moz-url",
+        "application/x-moz-url",
+        "text/x-url",
+        "application/x-url",
+        "text/x-uri-list",
+    }
+)
+#: 这些格式里可能混着整页的链接（Chromium 拖链接时会带 text/html），
+#: 一律不参与网址提取，否则一次拖放会导入一堆无关链接
+SKIP_FORMAT_BASES = frozenset(
+    {
+        "text/html",
+        "application/xhtml+xml",
+        "text/rtf",
+        "application/rtf",
+        "text/richtext",
+        "application/x-chrome-address-book",
+    }
+)
 
 _WINDOWS_DRIVE_RE = re.compile(r"^/[A-Za-z]:")
+#: 二进制负载里可能混入的控制字符（会让网址后面拖上 "\x00" 之类）
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 @dataclass
@@ -83,6 +114,60 @@ def _mime_has_format(mime, fmt: str) -> bool:
         return bool(mime.hasFormat(fmt))
     except Exception:  # noqa: BLE001
         return False
+
+
+def _mime_formats(mime) -> list[str]:
+    """列出 mime 里所有可读的格式名。"""
+    try:
+        return [str(f) for f in (mime.formats() or [])]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _format_base(fmt: str) -> str:
+    """去掉 "text/uri-list;charset=utf-8" 里的参数部分。"""
+    return fmt.split(";", 1)[0].strip().lower()
+
+
+def _is_urlish_format(fmt: str) -> bool:
+    return _format_base(fmt) in URLISH_FORMAT_BASES
+
+
+def _sanitize(text: str) -> str:
+    """去掉控制字符，避免网址被 "\\x00" 之类的东西污染。"""
+    return _CTRL_RE.sub("", text)
+
+
+def _decode_payload(raw: bytes, fmt: str) -> str:
+    """按格式名里的 charset 猜编码；实在猜不出就用 utf-8 兜底。"""
+    lowered = fmt.lower()
+    if "utf-16" in lowered:
+        candidates = ("utf-16", "utf-16-le", "utf-8")
+    elif "gb" in lowered:
+        candidates = ("gb18030", "utf-8")
+    else:
+        candidates = ("utf-8", "gb18030", "utf-16-le")
+    for encoding in candidates:
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
+
+
+def _iter_format_payloads(mime) -> list[tuple[str, str]]:
+    """把 mime 里所有格式的原始数据解码成文本（跳过 HTML / RTF 等噪声格式）。"""
+    payloads: list[tuple[str, str]] = []
+    for fmt in _mime_formats(mime):
+        if _format_base(fmt) in SKIP_FORMAT_BASES:
+            continue
+        raw = _mime_data(mime, fmt)
+        if not raw:
+            continue
+        text = _sanitize(_decode_payload(raw, fmt))
+        if text:
+            payloads.append((fmt, text))
+    return payloads
 
 
 def file_url_to_path(raw: str) -> Path | None:
@@ -191,6 +276,24 @@ def parse_drop_data(mime) -> DropPayload:
             except OSError:
                 continue
 
+    # 5) 兜底：扫描所有格式的原始数据
+    #    Chromium 会把网址列表注册成 "text/uri-list;charset=utf-8"，
+    #    Qt 的 hasFormat("text/uri-list") / urls() 都会漏掉它
+    for fmt, chunk in _iter_format_payloads(mime):
+        if _is_urlish_format(fmt):
+            for line in chunk.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.lower().startswith("file:"):
+                    path = file_url_to_path(line)
+                    if path is not None:
+                        add_path(path)
+                else:
+                    add_link(line)
+        for url in extract_urls(chunk):
+            add_link(url)
+
     return payload
 
 
@@ -202,7 +305,12 @@ def is_drop_supported(mime) -> bool:
     """
     if _safe_call(mime, "hasUrls", False):
         return True
-    for fmt in (URL_LIST_MIME, *MOZ_URL_MIMES):
-        if _mime_has_format(mime, fmt):
+    for fmt in _mime_formats(mime):
+        if _is_urlish_format(fmt):
             return True
-    return bool(extract_urls(_mime_text(mime)))
+    if extract_urls(_mime_text(mime)):
+        return True
+    for _fmt, payload in _iter_format_payloads(mime):
+        if extract_urls(payload):
+            return True
+    return False

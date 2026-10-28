@@ -59,11 +59,79 @@ class FakeMime:
     def text(self) -> str:
         return self._text
 
+    def formats(self) -> list[str]:
+        return list(self._formats)
+
     def hasFormat(self, fmt: str) -> bool:  # noqa: N802 (Qt 命名)
         return fmt in self._formats
 
     def data(self, fmt: str) -> bytes:
         return self._formats.get(fmt, b"")
+
+
+def chromium_tab_mime(url: str, title: str = "小红书 - 标记我的生活") -> FakeMime:
+    """模拟 Chromium 拖标签页：网址只出现在带 charset 参数的自定义格式里。
+
+    Chromium 会把网址列表注册成 ``text/uri-list;charset=utf-8``，
+    与 Qt 精确匹配的 ``text/uri-list`` 不是一回事；纯文本里只有标题。
+    """
+    return FakeMime(
+        text=title,
+        formats={
+            "text/plain": title.encode("utf-8"),
+            "text/uri-list;charset=utf-8": f"{url}\r\n".encode("utf-8"),
+            "Chromium Web Custom MIME Type": b"",
+        },
+    )
+
+
+def test_chromium_custom_uri_list_format_is_parsed() -> None:
+    """回归：Chromium 拖标签页——网址只在 "text/uri-list;charset=utf-8" 里。
+
+    这是「拖标签页没反应」的真正原因：Qt 的 hasFormat("text/uri-list") 为 False，
+    urls() 也是空列表，纯文本里只有页面标题。
+    """
+    mime = chromium_tab_mime("https://www.xiaohongshu.com/explore/123456789")
+    payload = parse_drop_data(mime)
+    assert payload.links == ["https://www.xiaohongshu.com/explore/123456789"]
+    assert is_drop_supported(mime) is True
+
+
+def test_chromium_html_payload_is_ignored() -> None:
+    """拖链接时 Chromium 会带 text/html，不能把整页链接都导进来。"""
+    mime = FakeMime(
+        text="看这个",
+        formats={
+            "text/uri-list;charset=utf-8": b"https://v.douyin.com/aaa/\r\n",
+            "text/html": (
+                b'<a href="https://ads.example.com/x">ad</a>'
+                b'<img src="https://cdn.example.com/y.png">'
+            ),
+        },
+    )
+    payload = parse_drop_data(mime)
+    assert payload.links == ["https://v.douyin.com/aaa/"]
+
+
+def test_control_characters_are_stripped_from_url() -> None:
+    """二进制负载里的 \\x00 之类不能污染网址。"""
+    mime = FakeMime(
+        formats={"text/uri-list;charset=utf-8": b"https://v.douyin.com/aaa/\x00\r\n"}
+    )
+    payload = parse_drop_data(mime)
+    assert payload.links == ["https://v.douyin.com/aaa/"]
+
+
+def test_utf16_payload_is_decoded() -> None:
+    mime = FakeMime(
+        formats={
+            "text/uri-list;charset=utf-16": "https://v.douyin.com/utf16/\r\n".encode(
+                "utf-16"
+            )
+        }
+    )
+    payload = parse_drop_data(mime)
+    assert payload.links == ["https://v.douyin.com/utf16/"]
 
 
 def test_chrome_style_drag_with_urls_and_text() -> None:

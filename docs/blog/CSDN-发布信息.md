@@ -19,8 +19,8 @@
 ### SHA256
 
 ```
-78ac99cdc0c688bb5967f1430048286fec21945c1dac89ff9e633f0f3fed7d39  MusicGrab-v1.8.0-win-x64.zip
-4ccf550268adbb1d3753c157f0e64aa7d33009a24887e69b59885640fba1678b  MusicGrab.exe
+e377dd30498cf2a88d6928940efac5b4022d2ddae451d3b82913700bbfa2eeb3  MusicGrab-v1.8.0-win-x64.zip
+24bc0606c638de392907707b0128db09e823dbfa59b32b047ae3d6e234a9a7da  MusicGrab.exe
 ```
 
 ---

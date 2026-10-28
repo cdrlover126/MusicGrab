@@ -1,11 +1,13 @@
 """GUI 拖放冒烟测试（开发工具）。
 
-覆盖三种真实来源：
-    1. Chrome / Edge 拖标签页：原始 ``text/uri-list`` + ``text/plain``
-    2. Firefox 拖标签页：``text/x-moz-url``
-    3. 资源管理器拖文件 / 文件夹：``QMimeData.urls()`` 里的 ``file:///``
+按 Qt 的真实规则模拟：``findDnDTarget()`` 会把拖放交给
+「从光标处向上第一个 acceptDrops 的控件」，因此覆盖：
 
-并验证「拖到窗口里的子控件（日志框）上」也能被接住（应用层拦截器）。
+1. Chrome / Edge 拖标签页：原始 ``text/uri-list`` + ``text/plain``
+2. Chromium 自定义格式：``text/uri-list;charset=utf-8``（网址只在这里）
+3. Firefox 拖标签页：``text/x-moz-url``
+4. 资源管理器拖文件 / 文件夹：``QMimeData.urls()`` 里的 ``file:///``
+5. 拖到日志框、输出目录等子控件上：验证不会被它们截胡
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from PySide6.QtCore import QMimeData, QPoint, QTimer, QUrl, Qt  # noqa: E402
 from PySide6.QtGui import QDragEnterEvent, QDropEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 _orig_exec = QApplication.exec
 
@@ -32,14 +34,44 @@ base = Path(tempfile.mkdtemp(prefix="musicgrab_drop_"))
 
 
 def chrome_tab_mime(url: str, title: str = "示例页面") -> QMimeData:
-    """模拟 Chrome 拖标签页：只有原始 text/uri-list 与 text/plain。"""
+    """模拟 Chrome 拖标签页：原始 text/uri-list + text/plain。"""
     mime = QMimeData()
     mime.setData("text/uri-list", f"{url}\r\n".encode())
     mime.setText(f"{title}\n{url}")
     return mime
 
 
-def fire(target, mime, pos=QPoint(10, 10)):
+def chromium_custom_mime(url: str, title: str = "小红书 - 你访问的页面不见了？") -> QMimeData:
+    """模拟 Chromium 自定义格式：网址只在 text/uri-list;charset=utf-8 里。"""
+    mime = QMimeData()
+    mime.setData("text/plain", title.encode("utf-8"))
+    mime.setData("text/uri-list;charset=utf-8", f"{url}\r\n".encode())
+    return mime
+
+
+def moz_mime(url: str, title: str = "YouTube") -> QMimeData:
+    mime = QMimeData()
+    mime.setData("text/x-moz-url", f"{url}\n{title}\n".encode())
+    return mime
+
+
+def find_drop_target(widget: QWidget, pos: QPoint) -> QWidget:
+    """复刻 Qt 的 findDnDTarget()：向上找第一个 acceptDrops 的控件。"""
+    child = widget.childAt(pos)
+    if child is None:
+        child = widget
+    while child is not None and not child.isWindow() and not child.acceptDrops():
+        child = child.parentWidget()
+    if child is not None and not child.acceptDrops():
+        child = None
+    return child
+
+
+def fire(window: QWidget, child: QWidget, mime: QMimeData, pos: QPoint):
+    """模拟真实拖放：事件发给 findDnDTarget() 选中的那个控件。"""
+    target = find_drop_target(window, pos)
+    if target is None:
+        return None, None
     enter = QDragEnterEvent(pos, Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
     QApplication.sendEvent(target, enter)
     drop = QDropEvent(pos, Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
@@ -59,51 +91,71 @@ def patched_exec(self):
             self.quit()
             return
 
-        print("== 1. Chrome 拖标签页（原始 text/uri-list）==")
-        mime = chrome_tab_mime("https://www.bilibili.com/video/BV1xx411c7mD")
-        accepted = fire(win.links_edit.viewport(), mime)
-        print("事件被接受:", accepted)
-        print(win.links_edit.toPlainText())
-        print("提示:", win.hint_label.text())
+        # 检查：除输入框外，子控件都不再接收拖放
+        hijackers = [
+            type(w).__name__
+            for w in win.findChildren(QWidget)
+            if w is not win.links_edit and w.acceptDrops()
+        ]
+        print("仍会截胡拖放的子控件:", hijackers or "无")
+        print("主窗口 acceptDrops:", win.acceptDrops())
+        print("输入框 acceptDrops:", win.links_edit.acceptDrops())
 
-        print("== 2. Firefox 拖标签页（text/x-moz-url）==")
+        print("\n== 1. Chrome 拖标签页（text/uri-list）==")
         win.links_edit.clear()
-        mime = QMimeData()
-        mime.setData("text/x-moz-url", b"https://v.douyin.com/abc123/\n\xe6\x8a\x96\xe9\x9f\xb3")
-        accepted = fire(win.links_edit.viewport(), mime)
-        print("事件被接受:", accepted)
-        print(win.links_edit.toPlainText())
+        ok = fire(win, win.links_edit.viewport(), chrome_tab_mime("https://www.bilibili.com/video/BV1xx411c7mD"), QPoint(10, 10))
+        print("接受:", ok, "|", win.links_edit.toPlainText(), "|", win.hint_label.text())
 
-        print("== 3. 资源管理器拖文件夹（file:/// URL）==")
+        print("\n== 2. Chromium 自定义格式（text/uri-list;charset=utf-8）==")
+        win.links_edit.clear()
+        ok = fire(win, win.links_edit.viewport(), chromium_custom_mime("https://www.xiaohongshu.com/explore/123456"), QPoint(10, 10))
+        print("接受:", ok, "|", win.links_edit.toPlainText(), "|", win.hint_label.text())
+
+        print("\n== 3. Firefox 拖标签页（text/x-moz-url）==")
+        win.links_edit.clear()
+        ok = fire(win, win.links_edit.viewport(), moz_mime("https://v.douyin.com/abc123/"), QPoint(10, 10))
+        print("接受:", ok, "|", win.links_edit.toPlainText())
+
+        print("\n== 4. 资源管理器拖文件夹 ==")
         win.links_edit.clear()
         mime = QMimeData()
         mime.setUrls([QUrl.fromLocalFile(str(base))])
-        accepted = fire(win.links_edit.viewport(), mime)
-        print("事件被接受:", accepted)
+        ok = fire(win, win.links_edit.viewport(), mime, QPoint(10, 10))
+        print("接受:", ok)
         print(win.links_edit.toPlainText())
         print("提示:", win.hint_label.text())
 
-        print("== 4. 拖到窗口里的日志框上（应用层拦截器）==")
+        print("\n== 5. 拖到「详情日志」区域（以前会被日志框截胡）==")
         win.links_edit.clear()
-        mime = chrome_tab_mime("https://v.kuaishou.com/bbbbbb")
-        accepted = fire(win.log_edit.viewport(), mime)
-        print("事件被接受:", accepted)
-        print("输入框内容:", win.links_edit.toPlainText())
+        win.tabs.setCurrentIndex(1)
+        self.processEvents()
+        target = find_drop_target(win, QPoint(0, 0))
+        print("命中目标控件:", type(target).__name__ if target else None)
+        ok = fire(win, win.log_edit.viewport(), chrome_tab_mime("https://v.kuaishou.com/bbbbbb"), QPoint(10, 10))
+        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText())
 
-        print("== 5. 重复拖入同一批内容（去重）==")
-        mime = chrome_tab_mime("https://v.kuaishou.com/bbbbbb")
-        fire(win.links_edit.viewport(), mime)
+        print("\n== 6. 拖到「输出目录」输入框上（QLineEdit 默认会截胡）==")
+        win.links_edit.clear()
+        win.tabs.setCurrentIndex(0)
+        self.processEvents()
+        target = find_drop_target(win, win.dir_edit.mapTo(win, QPoint(5, 5)))
+        print("命中目标控件:", type(target).__name__ if target else None)
+        ok = fire(win, win.dir_edit, chrome_tab_mime("https://music.163.com/song?id=347230"), QPoint(5, 5))
+        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText())
+        print("输出目录框内容（应保持不变）:", win.dir_edit.text())
+
+        print("\n== 7. 重复拖入同一批内容（去重）==")
+        fire(win, win.links_edit.viewport(), chrome_tab_mime("https://v.kuaishou.com/bbbbbb"), QPoint(10, 10))
         print("行数:", len(win.links_edit.toPlainText().splitlines()))
         print("提示:", win.hint_label.text())
 
-        print("== 6. 拖入不支持的文件 ==")
+        print("\n== 8. 拖入不支持的文件 ==")
         bad = QMimeData()
         bad.setUrls([QUrl.fromLocalFile(str(base / "说明.txt"))])
-        fire(win.links_edit.viewport(), bad)
+        fire(win, win.links_edit.viewport(), bad, QPoint(10, 10))
         print("提示:", win.hint_label.text())
 
-        print("== 7. 转换报告下拉 ==")
-        print("选项:", [win.report_box.itemText(i) for i in range(win.report_box.count())])
+        print("\n== 9. 转换报告下拉 ==")
         print("默认:", win.report_box.currentData())
 
         self.quit()
