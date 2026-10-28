@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 import requests
 
 from .config import (
+    REPORT_FILE_NAME,
+    REPORT_HISTORY_PREFIX,
+    REPORT_HISTORY_SUFFIX,
     ConvertOptions,
     describe_quality,
     resolve_output_format,
@@ -629,17 +632,49 @@ class BatchProcessor:
             tmp_src.unlink(missing_ok=True)
 
     def _write_report(self, rows: list[dict]) -> None:
-        if not rows:
+        """写出转换报告 CSV。
+
+        默认「覆盖同名文件」：输出目录里只保留一份 ``转换报告.csv``，
+        并顺带清掉历史遗留的时间戳报告，避免目录越用越乱。
+        """
+        mode = getattr(self.options, "report_mode", "overwrite") or "overwrite"
+        if mode == "none" or not rows:
             return
-        report = self.options.output_dir / f"转换报告_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        output_dir = self.options.output_dir
+        removed = 0
+        if mode == "overwrite":
+            report = output_dir / REPORT_FILE_NAME
+            removed = self._remove_history_reports(output_dir)
+        else:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            report = output_dir / f"{REPORT_HISTORY_PREFIX}{stamp}{REPORT_HISTORY_SUFFIX}"
         try:
+            output_dir.mkdir(parents=True, exist_ok=True)
             with open(report, "w", newline="", encoding="utf-8-sig") as fh:
                 writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
                 writer.writeheader()
                 writer.writerows(rows)
             self._log(f"报告已保存: {report}")
+            if removed:
+                self._log(f"已清理 {removed} 个历史报告文件（{REPORT_HISTORY_PREFIX}*）")
         except OSError as exc:
             self._log(f"写报告失败: {exc}")
+
+    @staticmethod
+    def _remove_history_reports(output_dir: Path) -> int:
+        """删除旧版本留下的时间戳报告文件，返回删除数量。"""
+        removed = 0
+        try:
+            stale = sorted(output_dir.glob(f"{REPORT_HISTORY_PREFIX}*{REPORT_HISTORY_SUFFIX}"))
+        except OSError:
+            return 0
+        for old in stale:
+            try:
+                old.unlink()
+                removed += 1
+            except OSError:
+                continue
+        return removed
 
 
 _ffmpeg_cache: str | None = None

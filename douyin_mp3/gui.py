@@ -16,9 +16,12 @@ from .config import (
     ENGINE_LABELS,
     OUTPUT_FORMATS,
     QUALITY_PRESETS,
+    REPORT_MODES,
+    REPORT_MODE_LABELS,
     VIDEO_EXTENSIONS,
     ConvertOptions,
 )
+from .dragdrop import is_drop_supported, parse_drop_data
 from .local_media import DEFAULT_LIMIT, collect_media_paths
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
@@ -40,7 +43,7 @@ def _icon_path() -> Path | None:
 
 def run_gui() -> int:
     try:
-        from PySide6.QtCore import Qt, QObject, QTimer, QUrl, Signal
+        from PySide6.QtCore import Qt, QObject, QEvent, QTimer, QUrl, Signal
         from PySide6.QtGui import QDesktopServices, QFont
         from PySide6.QtWidgets import (
             QAbstractItemView,
@@ -83,43 +86,6 @@ def run_gui() -> int:
         except RuntimeError:
             pass
 
-    def _mime_payload(mime) -> tuple[list[str], list[Path], bool]:
-        """从拖放数据中提取链接与本地路径。
-
-        返回 ``(链接列表, 本地路径列表, 是否有可处理内容)``。浏览器标签页 /
-        地址栏拖过来通常是 URL 文本；资源管理器拖过来是 ``file:///`` URL。
-        """
-        links: list[str] = []
-        paths: list[Path] = []
-        text = mime.text() or ""
-
-        if mime.hasUrls():
-            for url in mime.urls():
-                if not url.isValid():
-                    continue
-                if url.isLocalFile():
-                    paths.append(Path(url.toLocalFile()))
-                elif url.scheme().lower() in ("http", "https"):
-                    links.append(url.toString())
-
-        for url in extract_urls(text):
-            if url not in links:
-                links.append(url)
-
-        if not links and not paths:
-            # 少数文件管理器只给 text/plain 的本地路径
-            for line in text.splitlines():
-                candidate = line.strip().strip('"').strip("'")
-                if candidate and "://" not in candidate:
-                    path = Path(candidate).expanduser()
-                    if path.exists():
-                        paths.append(path)
-
-        return links, paths, bool(links or paths)
-
-    def _mime_supported(mime) -> bool:
-        return bool(mime.hasUrls() or extract_urls(mime.text() or ""))
-
     class DropTextEdit(QPlainTextEdit):
         """支持把视频文件、文件夹、浏览器链接直接拖进输入框。"""
 
@@ -129,26 +95,64 @@ def run_gui() -> int:
             self.setAcceptDrops(True)
 
         def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
             else:
                 super().dragEnterEvent(event)
 
         def dragMoveEvent(self, event) -> None:  # noqa: N802
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
             else:
                 super().dragMoveEvent(event)
 
         def dropEvent(self, event) -> None:  # noqa: N802
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
                 self._on_drop(event.mimeData())
             else:
                 super().dropEvent(event)
+
+    class DropWatcher(QObject):
+        """窗口级拖放拦截。
+
+        浏览器标签页拖动时，拖放事件可能落在日志框、结果表格等子控件上被
+        默认逻辑吞掉，用户表现为「拖进来没反应」。这里在应用层统一拦截，
+        只要拖放内容里能识别出链接或本地路径，就由主窗口接管。
+        """
+
+        def __init__(self, window) -> None:
+            super().__init__(window)
+            self._window = window
+
+        def _belongs_to_window(self, obj) -> bool:
+            try:
+                return obj is self._window or self._window.isAncestorOf(obj)
+            except Exception:  # noqa: BLE001
+                return False
+
+        def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
+            etype = event.type()
+            if etype not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+                return False
+            if not self._belongs_to_window(obj):
+                return False
+            mime = event.mimeData()
+            if etype == QEvent.Drop:
+                if not is_drop_supported(mime):
+                    return False
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                self._window.handle_drop(mime)
+                return True
+            if is_drop_supported(mime):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                return True
+            return False
 
     class WorkerSignals(QObject):
         """批量转换的结果投递通道。"""
@@ -588,6 +592,7 @@ def run_gui() -> int:
             self._add_setting(7, "读取浏览器 Cookies", self._make_browser_row())
             self._add_setting(8, "输出目录", self._make_dir_row())
             self._add_setting(9, "组件更新", self._make_update_row())
+            self._add_setting(10, "转换报告", self._make_report_row())
             self._refresh_quality_tip()
             self._refresh_format_tip()
             self.tabs.addTab(self.settings_page, "输出设置")
@@ -813,6 +818,17 @@ def run_gui() -> int:
                 self.engine_box.addItem(ENGINE_LABELS[key], key)
             return self.engine_box
 
+        def _make_report_row(self) -> QWidget:
+            self.report_box = QComboBox()
+            for key in REPORT_MODES:
+                self.report_box.addItem(REPORT_MODE_LABELS[key], key)
+            self.report_box.setCurrentIndex(self.report_box.findData("overwrite"))
+            self.report_box.setToolTip(
+                "转换报告 CSV 的保存方式。默认覆盖同名文件，输出目录里最多留一份，"
+                "不会越用越多；需要保留历史可改为「每次新建」。"
+            )
+            return self.report_box
+
         def _make_delay_row(self) -> QWidget:
             self.delay_spin = QSpinBox()
             self.delay_spin.setRange(0, 30)
@@ -933,8 +949,11 @@ def run_gui() -> int:
 
         def handle_drop(self, mime) -> None:
             """处理拖入的链接 / 文件 / 文件夹。"""
-            links, paths, _ = _mime_payload(mime)
-            self._append_entries(links, paths)
+            payload = parse_drop_data(mime)
+            if payload.empty:
+                self.hint_label.setText("未能识别到链接或文件（可先复制网址再粘贴）")
+                return
+            self._append_entries(payload.links, payload.paths)
 
         def _append_entries(self, links: list[str], paths: list[Path]) -> None:
             """把链接与本地路径追加到输入框，按 URL / 绝对路径去重。"""
@@ -985,21 +1004,21 @@ def run_gui() -> int:
             self.hint_label.setText(hint)
 
         def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
             else:
                 super().dragEnterEvent(event)
 
         def dragMoveEvent(self, event) -> None:  # noqa: N802
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
             else:
                 super().dragMoveEvent(event)
 
         def dropEvent(self, event) -> None:  # noqa: N802
-            if _mime_supported(event.mimeData()):
+            if is_drop_supported(event.mimeData()):
                 event.setDropAction(Qt.CopyAction)
                 event.accept()
                 self.handle_drop(event.mimeData())
@@ -1130,6 +1149,7 @@ def run_gui() -> int:
                 trust_env=False,
                 cookies_file=self.cookies_edit.text().strip() or None,
                 cookies_from_browser=self.browser_box.currentData() or None,
+                report_mode=self.report_box.currentData() or "overwrite",
             )
             self.last_options = options
             self._reset_results()
@@ -1423,5 +1443,9 @@ def run_gui() -> int:
         from PySide6.QtGui import QIcon
 
         window.setWindowIcon(QIcon(str(icon_file)))
+    # 窗口级拖放拦截：拖到日志框 / 结果表格等子控件上也能被接住
+    drop_watcher = DropWatcher(window)
+    app.installEventFilter(drop_watcher)
+    window._drop_watcher = drop_watcher  # 保持引用，避免被回收
     window.show()
     return app.exec()

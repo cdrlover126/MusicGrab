@@ -44,7 +44,7 @@ def patched_exec(self):
                 "https://www.bilibili.com/video/BV1rcn56hEoT"
             )
         if "--save" in sys.argv:
-            win.resize(980, 900)
+            win.resize(980, 980)
         self.processEvents()
         pix = win.grab()
         out = root / "packaging" / "layout_probe.png"

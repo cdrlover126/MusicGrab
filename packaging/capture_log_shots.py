@@ -42,7 +42,7 @@ DONE_LINES = """[1/5] 本地文件《示例视频A》(.mp4)
 [4/5] 完成 -> 004_示例视频D.mp3（22.9 MB）
 [5/5] 本地文件《示例视频E》(.mp4)
 [5/5] 完成 -> 005_示例视频E.mp3（22.9 MB）
-报告已保存：C:\\Users\\cdrlover\\Music\\MusicGrab\\转换报告_20261026_162211.csv
+报告已保存：C:\\Users\\cdrlover\\Music\\MusicGrab\\转换报告.csv
 完成：成功 5，失败 0"""
 
 

@@ -12,6 +12,7 @@ from .config import (
     DEFAULT_OUTPUT_DIR,
     ENGINE_CHOICES,
     OUTPUT_FORMAT_CHOICES,
+    REPORT_MODES,
     ConvertOptions,
 )
 from .proxy import ROUTE_MODES
@@ -91,6 +92,15 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("--skip-existing", action="store_true", help="跳过同名已存在文件")
     convert.add_argument("--delay", type=float, default=1.5, help="每条任务间隔秒数（防风控）")
     convert.add_argument("--keep-temp", action="store_true", help="保留临时文件便于排查")
+    convert.add_argument(
+        "--report",
+        choices=REPORT_MODES,
+        default="overwrite",
+        help=(
+            "转换报告保存方式：overwrite=覆盖同名文件（默认，只留一份）| "
+            "history=每次新建带时间戳 | none=不生成"
+        ),
+    )
 
     sub.add_parser("gui", help="启动图形界面（默认）")
 
@@ -123,6 +133,7 @@ def run_convert(args: argparse.Namespace) -> int:
         keep_temp=args.keep_temp,
         cookies_file=args.cookies,
         cookies_from_browser=args.cookies_from_browser,
+        report_mode=args.report,
     )
     processor = BatchProcessor(options, ffmpeg_path=args.ffmpeg)
     processor.on_log = lambda msg: print(msg, flush=True)

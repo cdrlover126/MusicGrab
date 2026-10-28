@@ -193,6 +193,23 @@ def resolve_output_format(fmt: str) -> OutputFormat:
     return OUTPUT_FORMATS[key]
 
 
+#: 转换报告（CSV）的保存方式
+#: - overwrite：固定文件名「转换报告.csv」，每次覆盖，输出目录里最多留一份
+#: - history：带时间戳的新文件，保留全部历史
+#: - none：不生成报告
+REPORT_MODES = ("overwrite", "history", "none")
+REPORT_MODE_LABELS = {
+    "overwrite": "覆盖同名文件（默认，只保留一份）",
+    "history": "每次新建（带时间戳，保留历史）",
+    "none": "不生成报告",
+}
+#: 覆盖模式下的报告文件名
+REPORT_FILE_NAME = "转换报告.csv"
+#: 历史报告文件名（带时间戳）
+REPORT_HISTORY_PREFIX = "转换报告_"
+REPORT_HISTORY_SUFFIX = ".csv"
+
+
 @dataclass
 class ConvertOptions:
     output_dir: Path = field(default_factory=lambda: DEFAULT_OUTPUT_DIR)
@@ -211,6 +228,7 @@ class ConvertOptions:
     ffmpeg_path: str | None = None
     cookies_file: str | None = None
     cookies_from_browser: str | None = None
+    report_mode: str = "overwrite"
 
     @property
     def bitrate(self) -> str:

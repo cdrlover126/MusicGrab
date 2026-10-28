@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 114 个单元测试的组织方式
+- 全部源码结构与 137 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 114 个单元测试
+├── tests/               # 137 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -415,27 +415,56 @@ def collect_local_files(lines: list[str]) -> list[Path]:
 
 ### 5.4 拖放导入：把文件、文件夹、标签页都变成输入行
 
-v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似只是接个 `dropEvent`，实际有三个坑：
+v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似只是接个 `dropEvent`，实际有四个坑：
 
 1. **Qt 默认会把本地文件插成 `file:///` URL**，而 `collect_local_files()` 明确跳过含 `://` 的行——于是"看起来拖进去了，实际一条都没处理"。必须自己解析 `QMimeData.urls()`，用 `toLocalFile()` 转回本地路径。
 2. **文件夹要递归**：用户拖进来的往往是一整个专辑目录。用 `os.walk` 过滤扩展名，跳过隐藏目录 / 回收站 / `__MACOSX` / `node_modules`，并设 2000 个上限，防止误拖整个磁盘把界面卡死。
-3. **浏览器标签页给的是文本或 URL**：Chrome / Edge 拖标签页通常提供 `text/uri-list`，直接 `extract_urls()` 即可；但浏览器本身不支持一次拖动多个标签页，多标签需要先用「复制所有标签页网址」再粘贴。
+3. **别只信 `QMimeData.urls()`**：这是 v1.8.0 上线后用户实测"拖标签页没反应"查出来的真凶。Chrome / Edge 拖标签页给的是原始 `text/uri-list`，某些来源下 Qt 的 `urls()` 会解析成空列表——于是代码"看起来处理了"，实际一条都没导入。现在改为把三种来源全解析一遍：`text/uri-list`（Chrome / Edge / 资源管理器）、`text/x-moz-url`（Firefox）、以及纯文本网址。
+4. **拖放事件会被子控件吞掉**：把标签页拖到「详情日志」这类只读文本框上时，事件被子控件的默认逻辑消费，主窗口根本收不到。解决办法是在**应用层**装一个事件过滤器，只要拖放内容里能识别出链接或路径就统一接管——拖到窗口任意位置都能导入。
 
 ```python
-def _mime_payload(mime):
+def parse_drop_data(mime) -> DropPayload:
     links, paths = [], []
+    # 1) Qt 解析出来的 URL
     for url in mime.urls():
         if url.isLocalFile():
             paths.append(Path(url.toLocalFile()))
         elif url.scheme().lower() in ("http", "https"):
             links.append(url.toString())
-    for url in extract_urls(mime.text() or ""):
-        if url not in links:
-            links.append(url)
-    return links, paths
+    # 2) 原始 text/uri-list（urls() 失败时的兜底）
+    for line in mime.data("text/uri-list").decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("file:"):
+            paths.append(file_url_to_path(line))
+        else:
+            links.append(line)
+    # 3) Firefox 的 text/x-moz-url：第一行网址，第二行标题
+    # 4) 纯文本：extract_urls(text)
+    return DropPayload(links=links, paths=paths)
+```
+
+窗口级拦截器则更朴素——只要目标在本窗口内且内容可识别，就直接接管：
+
+```python
+def eventFilter(self, obj, event) -> bool:
+    if event.type() not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+        return False
+    if not self._window.isAncestorOf(obj):
+        return False
+    if not is_drop_supported(event.mimeData()):
+        return False
+    event.setDropAction(Qt.CopyAction)
+    event.accept()
+    if event.type() == QEvent.Drop:
+        self._window.handle_drop(event.mimeData())
+    return True
 ```
 
 去重同时按 URL 与 `os.path.normcase(os.path.abspath(path))` 做，避免同一文件因大小写或相对路径不同被导入两次。另加了「添加文件夹…」按钮，方便不习惯拖放的用户。
+
+> 顺带修掉一个体验问题：转换报告原先每次批量都新建 `转换报告_时间戳.csv`，输出目录很快堆满几十个文件。现在默认**覆盖同名** `转换报告.csv`（输出目录最多一份），需要留历史可在「输出设置 → 转换报告」切换，或 CLI `--report history / none`。
 
 ---
 
@@ -816,11 +845,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-114 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描，以及组件升级的版本比对与安全解压：
+137 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-114 passed in 1.80s
+137 passed in 1.82s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1182,8 +1211,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`1cc4fee9b04f766a1a601d7f5a2a1e1d0fd8e55264fd489edddebe17183d5d22`
-> SHA256（exe）：`482620dac6d5b0b4fbec7000678c93f1f1fe421ec590a9e0aa2a4ca8200539de`
+> SHA256（发布包）：`78ac99cdc0c688bb5967f1430048286fec21945c1dac89ff9e633f0f3fed7d39`
+> SHA256（exe）：`4ccf550268adbb1d3753c157f0e64aa7d33009a24887e69b59885640fba1678b`
 
 ### 快速上手
 

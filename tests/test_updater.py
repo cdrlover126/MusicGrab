@@ -165,11 +165,13 @@ def test_external_finder_ignores_other_packages(tmp_path):
 
 def test_apply_overlay_installs_finder_and_ignores_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(updater, "overlay_root", lambda: tmp_path / "MusicGrab")
+    before = list(sys.meta_path)
     result = updater.apply_overlay()
     assert result == {"ytdlp": False, "ffmpeg": False}
-    assert not any(
-        isinstance(f, updater._ExternalPackageFinder) for f in sys.meta_path
-    )
+    # 覆盖层为空时不应再装新的 finder。
+    # 注意：导入 douyin_mp3 时会按真实覆盖层装过一个，这里只比较「新增」部分。
+    added = [f for f in sys.meta_path if not any(f is old for old in before)]
+    assert not any(isinstance(f, updater._ExternalPackageFinder) for f in added)
 
 
 def test_install_ytdlp_finder_skips_when_already_imported(tmp_path, monkeypatch):
