@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "douyin-mp3"
 version = "1.7.0"
-description = "乐取 MusicGrab：多平台音轨批量提取转车机可播放 MP3 的桌面应用"
+description = "乐取 MusicGrab：多平台音轨批量提取转车机可播放 MP3 的桌面应用（双引擎解析 / 智能代理路由 / 内置组件自检升级）"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "cdrlover" }]
-keywords = ["music", "mp3", "audio", "ffmpeg", "douyin", "kugou", "car-audio"]
+keywords = ["music", "mp3", "audio", "ffmpeg", "yt-dlp", "douyin", "kugou", "car-audio", "batch", "id3"]
 dependencies = [
     "requests>=2.31",
     "mutagen>=1.47",

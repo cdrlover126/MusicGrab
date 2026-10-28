@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
             "批量提取视频中的音乐/歌曲为车机可播放的 MP3"
             "（抖音/快手/酷狗用内置解析器，B站/YouTube/微博/网易云等站点走 yt-dlp 通用引擎）"
         ),
+        epilog=(
+            "子命令: convert 批量转换 | gui 图形界面 | "
+            "check-update 检查 yt-dlp/ffmpeg 组件更新（内置组件不会自动更新）"
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
