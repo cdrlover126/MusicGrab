@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert = sub.add_parser("convert", help="批量转换（命令行模式）")
     convert.add_argument(
-        "inputs", nargs="+", help="视频链接或包含链接的分享文本（抖音/快手/酷狗/B站/微博/网易云等）"
+        "inputs", nargs="+", help="视频链接、分享文本，或本地视频/音频文件、文件夹路径"
     )
     convert.add_argument(
         "-o",

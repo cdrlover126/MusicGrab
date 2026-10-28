@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .config import (
     VIDEO_EXTENSIONS,
     ConvertOptions,
 )
+from .local_media import DEFAULT_LIMIT, collect_media_paths
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
 from . import updater
@@ -80,6 +82,73 @@ def run_gui() -> int:
             signal.emit(*args)
         except RuntimeError:
             pass
+
+    def _mime_payload(mime) -> tuple[list[str], list[Path], bool]:
+        """从拖放数据中提取链接与本地路径。
+
+        返回 ``(链接列表, 本地路径列表, 是否有可处理内容)``。浏览器标签页 /
+        地址栏拖过来通常是 URL 文本；资源管理器拖过来是 ``file:///`` URL。
+        """
+        links: list[str] = []
+        paths: list[Path] = []
+        text = mime.text() or ""
+
+        if mime.hasUrls():
+            for url in mime.urls():
+                if not url.isValid():
+                    continue
+                if url.isLocalFile():
+                    paths.append(Path(url.toLocalFile()))
+                elif url.scheme().lower() in ("http", "https"):
+                    links.append(url.toString())
+
+        for url in extract_urls(text):
+            if url not in links:
+                links.append(url)
+
+        if not links and not paths:
+            # 少数文件管理器只给 text/plain 的本地路径
+            for line in text.splitlines():
+                candidate = line.strip().strip('"').strip("'")
+                if candidate and "://" not in candidate:
+                    path = Path(candidate).expanduser()
+                    if path.exists():
+                        paths.append(path)
+
+        return links, paths, bool(links or paths)
+
+    def _mime_supported(mime) -> bool:
+        return bool(mime.hasUrls() or extract_urls(mime.text() or ""))
+
+    class DropTextEdit(QPlainTextEdit):
+        """支持把视频文件、文件夹、浏览器链接直接拖进输入框。"""
+
+        def __init__(self, on_drop, parent=None) -> None:
+            super().__init__(parent)
+            self._on_drop = on_drop
+            self.setAcceptDrops(True)
+
+        def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+            else:
+                super().dragEnterEvent(event)
+
+        def dragMoveEvent(self, event) -> None:  # noqa: N802
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+            else:
+                super().dragMoveEvent(event)
+
+        def dropEvent(self, event) -> None:  # noqa: N802
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                self._on_drop(event.mimeData())
+            else:
+                super().dropEvent(event)
 
     class WorkerSignals(QObject):
         """批量转换的结果投递通道。"""
@@ -331,6 +400,7 @@ def run_gui() -> int:
             self.setWindowTitle(f"{APP_NAME} {APP_NAME_EN} v{__version__}")
             self.resize(900, 700)
             self.setMinimumSize(820, 560)
+            self.setAcceptDrops(True)
             self.worker: Worker | None = None
             self.last_options: ConvertOptions | None = None
             self.result_rows: dict[int, int] = {}
@@ -414,30 +484,34 @@ def run_gui() -> int:
             sub.setSizePolicy(sub_policy)
             body.addWidget(sub)
 
-            self.links_edit = QPlainTextEdit()
+            self.links_edit = DropTextEdit(self.handle_drop)
             self.links_edit.setPlaceholderText(
-                "粘贴分享链接或口令（每行一条）\n"
+                "粘贴分享链接或口令（每行一条），也可把视频文件 / 文件夹 / 浏览器标签页拖进来\n"
                 "例：https://v.douyin.com/xxxxxxx/\n"
                 "https://v.kuaishou.com/xxxxxx\n"
                 "https://www.kugou.com/mixsong/xxxxxx.html\n"
                 "https://www.bilibili.com/video/BVxxxx"
             )
             self.links_edit.setFixedHeight(150)
-            self.links_edit.setAcceptDrops(True)
             body.addWidget(self.links_edit)
 
-            # 链接区下方：常驻按钮行（添加本地文件 / 清空）
+            # 链接区下方：常驻按钮行（添加文件 / 文件夹 / 清空）
             file_row = QHBoxLayout()
             file_row.setSpacing(10)
             add_file_btn = QPushButton("添加本地文件…")
             add_file_btn.setProperty("secondary", True)
             add_file_btn.setMinimumWidth(126)
             add_file_btn.clicked.connect(self.pick_local_files)
+            add_dir_btn = QPushButton("添加文件夹…")
+            add_dir_btn.setProperty("secondary", True)
+            add_dir_btn.setMinimumWidth(112)
+            add_dir_btn.clicked.connect(self.pick_local_folder)
             clear_btn = QPushButton("清空")
             clear_btn.setProperty("secondary", True)
             clear_btn.setMinimumWidth(72)
             clear_btn.clicked.connect(self.clear_links)
             file_row.addWidget(add_file_btn)
+            file_row.addWidget(add_dir_btn)
             file_row.addWidget(clear_btn)
             file_row.addStretch(1)
             body.addLayout(file_row)
@@ -847,19 +921,90 @@ def run_gui() -> int:
                 f"媒体文件 ({exts});;视频文件 ({' '.join('*' + e for e in sorted(VIDEO_EXTENSIONS))});;"
                 f"音频文件 ({' '.join('*' + e for e in sorted(AUDIO_EXTENSIONS))});;所有文件 (*)",
             )
-            if not paths:
+            if paths:
+                self._append_entries([], [Path(p) for p in paths])
+
+        def pick_local_folder(self) -> None:
+            chosen = QFileDialog.getExistingDirectory(
+                self, "选择包含视频 / 音频的文件夹（会递归扫描）", ""
+            )
+            if chosen:
+                self._append_entries([], [Path(chosen)])
+
+        def handle_drop(self, mime) -> None:
+            """处理拖入的链接 / 文件 / 文件夹。"""
+            links, paths, _ = _mime_payload(mime)
+            self._append_entries(links, paths)
+
+        def _append_entries(self, links: list[str], paths: list[Path]) -> None:
+            """把链接与本地路径追加到输入框，按 URL / 绝对路径去重。"""
+            current = self._current_lines()
+            url_keys = {url for line in current for url in extract_urls(line)}
+            path_keys: set[str] = set()
+            for line in current:
+                if extract_urls(line):
+                    continue
+                candidate = line.strip().strip('"').strip("'")
+                if candidate:
+                    path_keys.add(os.path.normcase(os.path.abspath(candidate)))
+
+            added_links = 0
+            for url in links:
+                if url in url_keys:
+                    continue
+                current.append(url)
+                url_keys.add(url)
+                added_links += 1
+
+            media, truncated = collect_media_paths(paths) if paths else ([], False)
+            added_files = 0
+            for path in media:
+                key = os.path.normcase(os.path.abspath(str(path)))
+                if key in path_keys:
+                    continue
+                current.append(str(path))
+                path_keys.add(key)
+                added_files += 1
+
+            if not added_links and not added_files:
+                if paths and not media:
+                    self.hint_label.setText("未找到支持的音视频文件")
+                else:
+                    self.hint_label.setText("没有识别到新内容（可能已在列表中）")
                 return
-            current = self.links_edit.toPlainText().splitlines()
-            current = [line for line in current if line.strip()]
-            existing = set(current)
-            added = 0
-            for p in paths:
-                if p not in existing:
-                    current.append(p)
-                    existing.add(p)
-                    added += 1
+
             self.links_edit.setPlainText("\n".join(current))
-            self.hint_label.setText(f"已添加 {added} 个本地文件")
+            parts: list[str] = []
+            if added_links:
+                parts.append(f"{added_links} 条链接")
+            if added_files:
+                parts.append(f"{added_files} 个本地文件")
+            hint = "已添加 " + "、".join(parts)
+            if truncated:
+                hint += f"（文件夹内文件过多，仅取前 {DEFAULT_LIMIT} 个）"
+            self.hint_label.setText(hint)
+
+        def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+            else:
+                super().dragEnterEvent(event)
+
+        def dragMoveEvent(self, event) -> None:  # noqa: N802
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+            else:
+                super().dragMoveEvent(event)
+
+        def dropEvent(self, event) -> None:  # noqa: N802
+            if _mime_supported(event.mimeData()):
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+                self.handle_drop(event.mimeData())
+            else:
+                super().dropEvent(event)
 
         def clear_links(self) -> None:
             self.links_edit.clear()

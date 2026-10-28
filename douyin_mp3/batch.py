@@ -13,8 +13,6 @@ from urllib.parse import urlsplit
 import requests
 
 from .config import (
-    AUDIO_EXTENSIONS,
-    VIDEO_EXTENSIONS,
     ConvertOptions,
     describe_quality,
     resolve_output_format,
@@ -34,6 +32,7 @@ from .downloader import DownloadError, download_file, download_with_retry
 from .generic import GenericParseError, download_generic_audio
 from .kuaishou import KuaishouClient, KuaishouParseError
 from .kugou import KugouClient, KugouParseError
+from .local_media import collect_media_paths, is_media_file
 from .parser import (
     DouyinClient,
     DouyinParseError,
@@ -134,19 +133,16 @@ class BatchProcessor:
 
     @staticmethod
     def collect_local_files(lines: list[str]) -> list[Path]:
-        """从输入行中收集本地媒体文件路径（视频或音频）。"""
-        files: list[Path] = []
+        """从输入行中收集本地媒体文件路径（文件夹会递归展开）。"""
+        candidates: list[Path] = []
         for line in lines:
             text = line.strip().strip('"').strip("'")
             if not text or "://" in text:
                 continue
             path = Path(text).expanduser()
-            if not path.is_file():
-                continue
-            if path.suffix.lower() not in (VIDEO_EXTENSIONS | AUDIO_EXTENSIONS):
-                continue
-            if path not in files:
-                files.append(path)
+            if path.is_dir() or is_media_file(path):
+                candidates.append(path)
+        files, _ = collect_media_paths(candidates)
         return files
 
     def _base_path(

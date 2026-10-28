@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 103 个单元测试的组织方式
+- 全部源码结构与 114 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 103 个单元测试
+├── tests/               # 114 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -399,22 +399,43 @@ cmd += ["-i", str(cover),
 
 ```python
 def collect_local_files(lines: list[str]) -> list[Path]:
-    files: list[Path] = []
+    candidates: list[Path] = []
     for line in lines:
         text = line.strip().strip('"').strip("'")
         if not text or "://" in text:
             continue
         path = Path(text).expanduser()
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in (VIDEO_EXTENSIONS | AUDIO_EXTENSIONS):
-            continue
-        if path not in files:
-            files.append(path)
+        if path.is_dir() or is_media_file(path):
+            candidates.append(path)
+    files, _ = collect_media_paths(candidates)   # 文件夹递归展开 + 去重
     return files
 ```
 
 支持 30+ 常见容器：`mp4 / mkv / mov / avi / flv / f4v / wmv / webm / ts / m2ts / 3gp / rmvb / rm / mpg / mpeg / vob / asf / ogv / divx` 等。
+
+### 5.4 拖放导入：把文件、文件夹、标签页都变成输入行
+
+v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似只是接个 `dropEvent`，实际有三个坑：
+
+1. **Qt 默认会把本地文件插成 `file:///` URL**，而 `collect_local_files()` 明确跳过含 `://` 的行——于是"看起来拖进去了，实际一条都没处理"。必须自己解析 `QMimeData.urls()`，用 `toLocalFile()` 转回本地路径。
+2. **文件夹要递归**：用户拖进来的往往是一整个专辑目录。用 `os.walk` 过滤扩展名，跳过隐藏目录 / 回收站 / `__MACOSX` / `node_modules`，并设 2000 个上限，防止误拖整个磁盘把界面卡死。
+3. **浏览器标签页给的是文本或 URL**：Chrome / Edge 拖标签页通常提供 `text/uri-list`，直接 `extract_urls()` 即可；但浏览器本身不支持一次拖动多个标签页，多标签需要先用「复制所有标签页网址」再粘贴。
+
+```python
+def _mime_payload(mime):
+    links, paths = [], []
+    for url in mime.urls():
+        if url.isLocalFile():
+            paths.append(Path(url.toLocalFile()))
+        elif url.scheme().lower() in ("http", "https"):
+            links.append(url.toString())
+    for url in extract_urls(mime.text() or ""):
+        if url not in links:
+            links.append(url)
+    return links, paths
+```
+
+去重同时按 URL 与 `os.path.normcase(os.path.abspath(path))` 做，避免同一文件因大小写或相对路径不同被导入两次。另加了「添加文件夹…」按钮，方便不习惯拖放的用户。
 
 ---
 
@@ -795,11 +816,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-103 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号，以及组件升级的版本比对与安全解压：
+114 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-103 passed in 1.70s
+114 passed in 1.80s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1161,13 +1182,13 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`a4ab5b96feb4831cbc1d648a176aec0f7884f26159b76d974cf4fafcc9597114`
-> SHA256（exe）：`ee45b5262def7b0217564288bd8b69a98d41f8188bd740bb2a62b9d0ff93cf17`
+> SHA256（发布包）：`1cc4fee9b04f766a1a601d7f5a2a1e1d0fd8e55264fd489edddebe17183d5d22`
+> SHA256（exe）：`482620dac6d5b0b4fbec7000678c93f1f1fe421ec590a9e0aa2a4ca8200539de`
 
 ### 快速上手
 
 1. 解压，双击 `MusicGrab.exe`
-2. 粘贴链接（每行一条），或点「添加本地文件…」选视频
+2. 粘贴链接（每行一条），或点「添加本地文件…」/「添加文件夹…」，也可以把文件、文件夹、浏览器标签页直接拖进窗口
 3. 在「输出设置」选音质（默认 320；想要最佳 VBR 选 V0）与格式（车机优先 MP3）
 4. 点「开始转换」
 5. 完成后切到「任务结果」页：双击打开文件，右键失败项可单独重试

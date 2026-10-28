@@ -45,6 +45,7 @@ def patched_exec(self):
         ]
         win._pending_updates = statuses
         win._on_check_done(statuses)
+        win.resize(980, 900)
         self.processEvents()
         pix = win.grab()
         out = root / "docs" / "images" / "08-组件更新横幅.png"

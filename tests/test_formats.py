@@ -70,6 +70,19 @@ def test_collect_local_files_ignores_urls(tmp_path):
     assert BatchProcessor.collect_local_files(["https://v.douyin.com/x/"]) == []
 
 
+def test_collect_local_files_expands_folders(tmp_path):
+    (tmp_path / "sub").mkdir()
+    first = tmp_path / "a.mp4"
+    second = tmp_path / "sub" / "b.flac"
+    first.write_bytes(b"x")
+    second.write_bytes(b"x")
+    (tmp_path / "note.txt").write_text("ignore", encoding="utf-8")
+
+    found = BatchProcessor.collect_local_files([str(tmp_path)])
+
+    assert found == [first, second]
+
+
 def test_video_extensions_include_common_containers():
     for ext in (".mp4", ".mkv", ".mov", ".avi", ".flv", ".wmv", ".webm", ".ts", ".m4v"):
         assert ext in VIDEO_EXTENSIONS

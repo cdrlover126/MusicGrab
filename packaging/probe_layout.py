@@ -11,7 +11,7 @@ sys.path.insert(0, str(root))
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-tab_index = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+tab_index = int(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else 0
 
 _orig_exec = QApplication.exec
 
@@ -28,16 +28,32 @@ def patched_exec(self):
             self.quit()
             return
         win.tabs.setCurrentIndex(tab_index)
-        if "--paste" in sys.argv:
+        if "--paste5" in sys.argv:
+            win.links_edit.setPlainText(
+                "7.92 复制打开抖音，看看【某人的作品】 https://v.douyin.com/iAbCdEf/\n"
+                "https://v.kuaishou.com/nmqf0KDZ\n"
+                "https://www.kugou.com/mixsong/g5jy4e47.html\n"
+                "https://www.bilibili.com/video/BV1rcn56hEoT\n"
+                "https://music.163.com/song?id=347230"
+            )
+        elif "--paste" in sys.argv:
             win.links_edit.setPlainText(
                 "7.92 复制打开抖音，看看【某人的作品】 https://v.douyin.com/iAbCdEf/\n"
                 "https://v.kuaishou.com/nmqf0KDZ\n"
                 "https://www.kugou.com/mixsong/g5jy4e47.html\n"
                 "https://www.bilibili.com/video/BV1rcn56hEoT"
             )
+        if "--save" in sys.argv:
+            win.resize(980, 900)
         self.processEvents()
         pix = win.grab()
         out = root / "packaging" / "layout_probe.png"
+        if "--save" in sys.argv:
+            index = sys.argv.index("--save") + 1
+            if index < len(sys.argv):
+                out = Path(sys.argv[index])
+                if not out.is_absolute():
+                    out = root / out
         pix.save(str(out))
         print("captured(qt)", pix.width(), "x", pix.height(), "tab=", tab_index, "->", out)
         self.quit()
