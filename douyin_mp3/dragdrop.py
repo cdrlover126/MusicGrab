@@ -63,6 +63,16 @@ _WINDOWS_DRIVE_RE = re.compile(r"^/[A-Za-z]:")
 #: 二进制负载里可能混入的控制字符（会让网址后面拖上 "\x00" 之类）
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+#: 是否允许把浏览器标签页 / 链接拖进输入框。
+#:
+#: v1.8.0 起暂时关闭：各浏览器对「拖标签页」给出的 MIME 数据差异太大，
+#: 实际体验不稳定，先只保留文件 / 文件夹拖放（链接请复制后粘贴）。
+#: 需要恢复时把这里改成 True 即可。
+ALLOW_LINK_DROP = False
+
+#: 链接拖放被关闭时给用户的提示
+LINK_DROP_DISABLED_HINT = "暂不支持拖动浏览器标签页，请复制网址后粘贴"
+
 
 @dataclass
 class DropPayload:
@@ -314,3 +324,16 @@ def is_drop_supported(mime) -> bool:
         if extract_urls(payload):
             return True
     return False
+
+
+def split_drop_payload(
+    payload: DropPayload, allow_links: bool = ALLOW_LINK_DROP
+) -> tuple[list[str], list[Path], bool]:
+    """把拖放内容拆成「要导入的链接」「要导入的本地文件」「是否忽略了链接」。
+
+    链接拖放被关闭时（``allow_links=False``），链接会被丢弃并返回提示标记，
+    让界面可以明确告诉用户「请复制网址后粘贴」，而不是毫无反应。
+    """
+    if allow_links:
+        return list(payload.links), list(payload.paths), False
+    return [], list(payload.paths), bool(payload.links)

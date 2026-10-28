@@ -21,7 +21,12 @@ from .config import (
     VIDEO_EXTENSIONS,
     ConvertOptions,
 )
-from .dragdrop import is_drop_supported, parse_drop_data
+from .dragdrop import (
+    LINK_DROP_DISABLED_HINT,
+    is_drop_supported,
+    parse_drop_data,
+    split_drop_payload,
+)
 from .local_media import DEFAULT_LIMIT, collect_media_paths
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
@@ -476,7 +481,7 @@ def run_gui() -> int:
 
             self.links_edit = DropTextEdit(self.handle_drop)
             self.links_edit.setPlaceholderText(
-                "粘贴分享链接或口令（每行一条），也可把视频文件 / 文件夹 / 浏览器标签页拖进来\n"
+                "粘贴分享链接或口令（每行一条），也可把视频文件 / 文件夹拖进来\n"
                 "例：https://v.douyin.com/xxxxxxx/\n"
                 "https://v.kuaishou.com/xxxxxx\n"
                 "https://www.kugou.com/mixsong/xxxxxx.html\n"
@@ -939,12 +944,22 @@ def run_gui() -> int:
                 self._append_entries([], [Path(chosen)])
 
         def handle_drop(self, mime) -> None:
-            """处理拖入的链接 / 文件 / 文件夹。"""
+            """处理拖入的链接 / 文件 / 文件夹。
+
+            浏览器标签页拖放暂时关闭（见 ``dragdrop.ALLOW_LINK_DROP``），
+            遇到链接会提示用户复制网址后粘贴。
+            """
             payload = parse_drop_data(mime)
             if payload.empty:
                 self.hint_label.setText("未能识别到链接或文件（可先复制网址再粘贴）")
                 return
-            self._append_entries(payload.links, payload.paths)
+            links, paths, ignored_links = split_drop_payload(payload)
+            if ignored_links:
+                if paths:
+                    self._append_entries(links, paths)
+                self.hint_label.setText(LINK_DROP_DISABLED_HINT)
+                return
+            self._append_entries(links, paths)
 
         def _append_entries(self, links: list[str], paths: list[Path]) -> None:
             """把链接与本地路径追加到输入框，按 URL / 绝对路径去重。"""

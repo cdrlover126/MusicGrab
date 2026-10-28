@@ -3,10 +3,10 @@
 按 Qt 的真实规则模拟：``findDnDTarget()`` 会把拖放交给
 「从光标处向上第一个 acceptDrops 的控件」，因此覆盖：
 
-1. Chrome / Edge 拖标签页：原始 ``text/uri-list`` + ``text/plain``
-2. Chromium 自定义格式：``text/uri-list;charset=utf-8``（网址只在这里）
-3. Firefox 拖标签页：``text/x-moz-url``
-4. 资源管理器拖文件 / 文件夹：``QMimeData.urls()`` 里的 ``file:///``
+1. Chrome / Edge 拖标签页：原始 ``text/uri-list`` + ``text/plain``（当前会被忽略）
+2. Chromium 自定义格式：``text/uri-list;charset=utf-8``（当前会被忽略）
+3. Firefox 拖标签页：``text/x-moz-url``（当前会被忽略）
+4. 资源管理器拖文件 / 文件夹：应当正常导入
 5. 拖到日志框、输出目录等子控件上：验证不会被它们截胡
 """
 
@@ -55,6 +55,12 @@ def moz_mime(url: str, title: str = "YouTube") -> QMimeData:
     return mime
 
 
+def file_mime(*paths: Path) -> QMimeData:
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
+    return mime
+
+
 def find_drop_target(widget: QWidget, pos: QPoint) -> QWidget:
     """复刻 Qt 的 findDnDTarget()：向上找第一个 acceptDrops 的控件。"""
     child = widget.childAt(pos)
@@ -91,7 +97,6 @@ def patched_exec(self):
             self.quit()
             return
 
-        # 检查：除输入框外，子控件都不再接收拖放
         hijackers = [
             type(w).__name__
             for w in win.findChildren(QWidget)
@@ -101,26 +106,27 @@ def patched_exec(self):
         print("主窗口 acceptDrops:", win.acceptDrops())
         print("输入框 acceptDrops:", win.links_edit.acceptDrops())
 
-        print("\n== 1. Chrome 拖标签页（text/uri-list）==")
+        print("\n== 1. Chrome 拖标签页（链接拖放暂时关闭）==")
         win.links_edit.clear()
         ok = fire(win, win.links_edit.viewport(), chrome_tab_mime("https://www.bilibili.com/video/BV1xx411c7mD"), QPoint(10, 10))
-        print("接受:", ok, "|", win.links_edit.toPlainText(), "|", win.hint_label.text())
+        print("接受:", ok, "| 输入框:", repr(win.links_edit.toPlainText()))
+        print("提示:", win.hint_label.text())
 
-        print("\n== 2. Chromium 自定义格式（text/uri-list;charset=utf-8）==")
+        print("\n== 2. Chromium 自定义格式 ==")
         win.links_edit.clear()
         ok = fire(win, win.links_edit.viewport(), chromium_custom_mime("https://www.xiaohongshu.com/explore/123456"), QPoint(10, 10))
-        print("接受:", ok, "|", win.links_edit.toPlainText(), "|", win.hint_label.text())
+        print("接受:", ok, "| 输入框:", repr(win.links_edit.toPlainText()))
+        print("提示:", win.hint_label.text())
 
-        print("\n== 3. Firefox 拖标签页（text/x-moz-url）==")
+        print("\n== 3. Firefox 拖标签页 ==")
         win.links_edit.clear()
         ok = fire(win, win.links_edit.viewport(), moz_mime("https://v.douyin.com/abc123/"), QPoint(10, 10))
-        print("接受:", ok, "|", win.links_edit.toPlainText())
+        print("接受:", ok, "| 输入框:", repr(win.links_edit.toPlainText()))
+        print("提示:", win.hint_label.text())
 
-        print("\n== 4. 资源管理器拖文件夹 ==")
+        print("\n== 4. 资源管理器拖文件夹（应当正常导入）==")
         win.links_edit.clear()
-        mime = QMimeData()
-        mime.setUrls([QUrl.fromLocalFile(str(base))])
-        ok = fire(win, win.links_edit.viewport(), mime, QPoint(10, 10))
+        ok = fire(win, win.links_edit.viewport(), file_mime(base), QPoint(10, 10))
         print("接受:", ok)
         print(win.links_edit.toPlainText())
         print("提示:", win.hint_label.text())
@@ -131,8 +137,8 @@ def patched_exec(self):
         self.processEvents()
         target = find_drop_target(win, QPoint(0, 0))
         print("命中目标控件:", type(target).__name__ if target else None)
-        ok = fire(win, win.log_edit.viewport(), chrome_tab_mime("https://v.kuaishou.com/bbbbbb"), QPoint(10, 10))
-        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText())
+        ok = fire(win, win.log_edit.viewport(), file_mime(base / "a.mp4"), QPoint(10, 10))
+        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText().replace("\n", " | "))
 
         print("\n== 6. 拖到「输出目录」输入框上（QLineEdit 默认会截胡）==")
         win.links_edit.clear()
@@ -140,19 +146,19 @@ def patched_exec(self):
         self.processEvents()
         target = find_drop_target(win, win.dir_edit.mapTo(win, QPoint(5, 5)))
         print("命中目标控件:", type(target).__name__ if target else None)
-        ok = fire(win, win.dir_edit, chrome_tab_mime("https://music.163.com/song?id=347230"), QPoint(5, 5))
-        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText())
+        ok = fire(win, win.dir_edit, file_mime(base / "a.mp4"), QPoint(5, 5))
+        print("接受:", ok, "| 输入框:", win.links_edit.toPlainText().replace("\n", " | "))
         print("输出目录框内容（应保持不变）:", win.dir_edit.text())
 
         print("\n== 7. 重复拖入同一批内容（去重）==")
-        fire(win, win.links_edit.viewport(), chrome_tab_mime("https://v.kuaishou.com/bbbbbb"), QPoint(10, 10))
+        fire(win, win.links_edit.viewport(), file_mime(base / "a.mp4"), QPoint(10, 10))
         print("行数:", len(win.links_edit.toPlainText().splitlines()))
         print("提示:", win.hint_label.text())
 
         print("\n== 8. 拖入不支持的文件 ==")
-        bad = QMimeData()
-        bad.setUrls([QUrl.fromLocalFile(str(base / "说明.txt"))])
-        fire(win, win.links_edit.viewport(), bad, QPoint(10, 10))
+        win.links_edit.clear()
+        fire(win, win.links_edit.viewport(), file_mime(base / "说明.txt"), QPoint(10, 10))
+        print("输入框:", repr(win.links_edit.toPlainText()))
         print("提示:", win.hint_label.text())
 
         print("\n== 9. 转换报告下拉 ==")

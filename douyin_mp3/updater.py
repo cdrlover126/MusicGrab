@@ -43,6 +43,8 @@ from urllib.parse import urljoin
 import requests
 
 from . import __version__
+from .config import overlay_root as _config_overlay_root
+from .tls import requests_verify, save_ca_bundle
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -78,13 +80,8 @@ class UpdateError(RuntimeError):
 
 
 # ── 覆盖层路径 ──────────────────────────────────────────────
-def overlay_root() -> Path:
-    """覆盖层根目录。"""
-    if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    else:
-        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(base) / "MusicGrab"
+#: 覆盖层根目录（保留这个名字，测试里会 monkeypatch）
+overlay_root = _config_overlay_root
 
 
 def ytdlp_overlay_dir() -> Path:
@@ -299,6 +296,7 @@ def _http_get(url: str, timeout: int = HTTP_TIMEOUT) -> requests.Response:
         url,
         timeout=timeout,
         headers={"User-Agent": USER_AGENT, "Accept": "*/*"},
+        verify=requests_verify(overlay_root()),
     )
     response.raise_for_status()
     return response
@@ -523,6 +521,7 @@ def download_file(
             stream=True,
             timeout=DOWNLOAD_TIMEOUT,
             headers={"User-Agent": USER_AGENT},
+            verify=requests_verify(overlay_root()),
         ) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length") or 0)
@@ -739,6 +738,9 @@ def apply_overlay() -> dict:
 
     必须在任何 ``import yt_dlp`` 之前执行（项目里 yt-dlp 是懒加载的，
     因此只要在进入业务逻辑前调用即可）。
+
+    同时会把 CA 证书包复制一份到覆盖层：打包版解压出来的证书包在
+    ``%TEMP%\\_MEIxxxxxx`` 里，被清理工具删掉就会导致所有 HTTPS 请求失败。
     """
     result = {"ytdlp": False, "ffmpeg": False}
     try:
@@ -749,6 +751,10 @@ def apply_overlay() -> dict:
         result["ffmpeg"] = apply_ffmpeg_overlay()
     except Exception:
         result["ffmpeg"] = False
+    try:
+        save_ca_bundle(overlay_root())
+    except Exception:
+        pass
     return result
 
 

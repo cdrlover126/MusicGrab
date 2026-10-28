@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +15,8 @@ ID3_VERSION = 3
 
 DEFAULT_OUTPUT_DIR = Path.home() / "Music" / "MusicGrab"
 TEMP_DIR_NAME = ".douyin_mp3_tmp"
+#: 覆盖层目录名（外置 yt-dlp / ffmpeg / CA 证书包都放这里）
+OVERLAY_DIR_NAME = "MusicGrab"
 
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) "
@@ -182,6 +186,15 @@ def temp_dir() -> Path:
     d = Path.home() / TEMP_DIR_NAME
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def overlay_root() -> Path:
+    """覆盖层根目录（外置组件与 CA 证书包都放这里）。"""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / OVERLAY_DIR_NAME
 
 
 def resolve_output_format(fmt: str) -> OutputFormat:

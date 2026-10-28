@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 146 个单元测试的组织方式
+- 全部源码结构与 158 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 146 个单元测试
+├── tests/               # 158 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -413,14 +413,13 @@ def collect_local_files(lines: list[str]) -> list[Path]:
 
 支持 30+ 常见容器：`mp4 / mkv / mov / avi / flv / f4v / wmv / webm / ts / m2ts / 3gp / rmvb / rm / mpg / mpeg / vob / asf / ogv / divx` 等。
 
-### 5.4 拖放导入：把文件、文件夹、标签页都变成输入行
+### 5.4 拖放导入：把文件、文件夹变成输入行
 
-v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似只是接个 `dropEvent`，实际有四个坑：
+v1.8.0 支持把文件、文件夹直接拖进窗口。看似只是接个 `dropEvent`，实际有三个坑：
 
 1. **Qt 默认会把本地文件插成 `file:///` URL**，而 `collect_local_files()` 明确跳过含 `://` 的行——于是"看起来拖进去了，实际一条都没处理"。必须自己解析 `QMimeData.urls()`，用 `toLocalFile()` 转回本地路径。
 2. **文件夹要递归**：用户拖进来的往往是一整个专辑目录。用 `os.walk` 过滤扩展名，跳过隐藏目录 / 回收站 / `__MACOSX` / `node_modules`，并设 2000 个上限，防止误拖整个磁盘把界面卡死。
-3. **别只信 `QMimeData.urls()`**：这是 v1.8.0 上线后用户实测"拖标签页没反应"查出来的真凶之一。Chrome / Edge 拖标签页给的是原始 `text/uri-list`，Chromium 还会用 `text/uri-list;charset=utf-8` 这种**带参数**的格式名——与 Qt 精确匹配的 `text/uri-list` 不是一回事，`hasFormat()` 会返回 False，`urls()` 也会是空列表。现在改为把各种来源全解析一遍：`text/uri-list`、`text/uri-list;charset=utf-8`、`text/x-moz-url`（Firefox）、以及纯文本网址。
-4. **Qt 会把拖放交给「第一个 acceptDrops 的控件」**——这才是"拖进程序没反应"的**真正元凶**。Qt 的 `findDnDTarget()` 从光标处的子控件开始向上找，**谁第一个 `acceptDrops()` 就是接收方**。而 `QLineEdit`、`QPlainTextEdit`、`QTextEdit` **默认都是 `acceptDrops=True`**：拖到日志框（只读）上 → 事件被它吃掉，什么也没发生；拖到"输出目录"输入框上 → 网址被当成文本插进了那个框。
+3. **Qt 会把拖放交给「第一个 acceptDrops 的控件」**——这是"拖进程序没反应"的**真正元凶**。Qt 的 `findDnDTarget()` 从光标处的子控件开始向上找，**谁第一个 `acceptDrops()` 就是接收方**。而 `QLineEdit`、`QPlainTextEdit`、`QTextEdit` **默认都是 `acceptDrops=True`**：拖到日志框（只读）上 → 事件被它吃掉，什么也没发生；拖到"输出目录"输入框上 → 网址被当成文本插进了那个框。
 
    ```cpp
    // Qt 源码：src/widgets/kernel/qwidgetwindow.cpp
@@ -455,31 +454,17 @@ v1.8.0 支持直接把文件、文件夹、浏览器链接拖进窗口。看似�
 
 > 顺带一提：一开始我用的是"应用层事件过滤器"（`app.installEventFilter`）想统一接管拖放，**但那是无效的**——Qt 的 `QGuiApplication::forwardEvent()` 是直接调 `receiver->event(event)`，**不经过应用层事件过滤器**。所以只有控件自己实现的 `dragEnterEvent` / `dropEvent` 才会收到真实拖放。
 
-```python
-def parse_drop_data(mime) -> DropPayload:
-    links, paths = [], []
-    # 1) Qt 解析出来的 URL
-    for url in mime.urls():
-        if url.isLocalFile():
-            paths.append(Path(url.toLocalFile()))
-        elif url.scheme().lower() in ("http", "https"):
-            links.append(url.toString())
-    # 2) 原始 text/uri-list（urls() 失败时的兜底）
-    for line in mime.data("text/uri-list").decode("utf-8", "replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.lower().startswith("file:"):
-            paths.append(file_url_to_path(line))
-        else:
-            links.append(line)
-    # 3) Firefox 的 text/x-moz-url：第一行网址，第二行标题
-    # 4) 纯文本：extract_urls(text)
-    # 5) 兜底：扫描所有格式（覆盖 text/uri-list;charset=utf-8 这类自定义名）
-    return DropPayload(links=links, paths=paths)
-```
+### 5.5 浏览器标签页拖放：为什么最后先关掉
 
-去重同时按 URL 与 `os.path.normcase(os.path.abspath(path))` 做，避免同一文件因大小写或相对路径不同被导入两次。另加了「添加文件夹…」按钮，方便不习惯拖放的用户。
+最初还做了"把浏览器标签页直接拖进程序"的功能，实测各浏览器差异大得超预期：
+
+| 来源 | 实际给出的数据 |
+|---|---|
+| Chrome / Edge 拖标签页 | `text/uri-list` + `text/plain`（标题） |
+| Chromium 自定义格式 | `text/uri-list;charset=utf-8`（**带参数**，`hasFormat("text/uri-list")` 返回 False） |
+| Firefox 拖标签页 | `text/x-moz-url`（第一行网址、第二行标题） |
+
+程序侧把这些格式都兼容了（`douyin_mp3/dragdrop.py`），但浏览器本身还有个死结：**一次只能拖一个标签页**，多标签必须先"复制所有标签页网址"再粘贴——那不如直接粘贴。于是 v1.8.0 先把这个功能关掉（`dragdrop.ALLOW_LINK_DROP = False`），只保留稳定的文件 / 文件夹拖放；等浏览器侧有更好的方案再打开开关。
 
 > 顺带修掉一个体验问题：转换报告原先每次批量都新建 `转换报告_时间戳.csv`，输出目录很快堆满几十个文件。现在默认**覆盖同名** `转换报告.csv`（输出目录最多一份），需要留历史可在「输出设置 → 转换报告」切换，或 CLI `--report history / none`。
 
@@ -862,11 +847,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-146 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式，以及组件升级的版本比对与安全解压：
+158 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-146 passed in 1.74s
+158 passed in 1.83s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1062,6 +1047,59 @@ def _safe_target(root: Path, name: str) -> Path:
 **最重要的一条底线：内置组件永远保留。** 升级的任何一步失败，都退回内置版本继续工作，
 绝不会出现"升级失败 → 程序打不开"的情况。
 
+#### 第五步：自检自己也会挂——CA 证书包被清理工具删了
+
+v1.8.0 上线后收到一条真实反馈：
+
+```text
+组件更新检查失败（不影响使用）：Could not find a suitable TLS CA certificate bundle,
+invalid path: C:\Users\xxx\AppData\Local\Temp\_MEI00004ff02\certifi\cacert.pem
+```
+
+这是 requests 2.34 的 `cert_verify()` 抛的——它只认**一个存在的路径**：
+
+```python
+if not cert_loc or not os.path.exists(cert_loc):
+    raise OSError(
+        f"Could not find a suitable TLS CA certificate bundle, invalid path: {cert_loc}"
+    )
+```
+
+而打包版的 CA 证书包在哪儿？PyInstaller 单文件模式会把 `certifi/cacert.pem` 解压到
+`%TEMP%\_MEIxxxxxx\`——**这是个临时目录**。用户电脑上的"清理临时文件"工具（或者
+一次强制结束进程）把它删掉之后，程序里**所有** HTTPS 请求都会挂：解析、下载、
+组件自检一条都不剩。
+
+解法不是"祈祷临时目录别被删"，而是**给证书包准备一个稳定副本**：
+
+```python
+def save_ca_bundle(directory: Path) -> Path | None:
+    """把 certifi 的证书包复制到覆盖层（%LOCALAPPDATA%\\MusicGrab）。"""
+    source = certifi.where()
+    target = directory / "cacert.pem"
+    if not os.path.isfile(source) or os.path.isfile(target):
+        return target if os.path.isfile(target) else None
+    shutil.copyfile(source, target)
+    return target
+
+
+def requests_verify(directory: Path | None = None) -> bool | str:
+    """certifi 路径失效时，改用覆盖层里那份副本。"""
+    if os.path.isfile(certifi.where()):
+        return True
+    fallback = saved_ca_path(directory)
+    return str(fallback) if fallback else True
+```
+
+启动时（`apply_overlay()`）复制一次，之后所有 `requests` 调用都带上
+`verify=requests_verify(overlay_root())`。覆盖层目录本来就是给外置组件用的，
+放证书包正合适——**它不依赖 `%TEMP%`，也就不怕清理工具**。
+
+> 顺带一提，用户还贴了一张截图：退出时 PyInstaller 弹出 `Failed to remove temporary
+> directory: ...\_MEI00004ff02`——同一个目录。这正好印证了推断：**那个临时目录被
+> 外部动过了**（被删掉一半，所以既找不到证书包、也没法完整清理）。程序侧无法控制
+> 引导器的清理行为，但可以在文档里说明「正常关闭不会出现，残留目录可手动删除」。
+
 #### 界面与体验
 
 启动后后台线程自检（不阻塞界面，失败静默降级），发现新版本就在窗口顶部弹一条横幅：
@@ -1228,8 +1266,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`e377dd30498cf2a88d6928940efac5b4022d2ddae451d3b82913700bbfa2eeb3`
-> SHA256（exe）：`24bc0606c638de392907707b0128db09e823dbfa59b32b047ae3d6e234a9a7da`
+> SHA256（发布包）：`762b24349087e319e5a45393ee89cdd5b33ea7bf173883ca7a53e728db28a978`
+> SHA256（exe）：`a30ff982649192fa916db77117e5cc947aab631aad3c72130f9926b22cd68b24`
 
 ### 快速上手
 

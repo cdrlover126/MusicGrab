@@ -19,8 +19,8 @@
 ### SHA256
 
 ```
-e377dd30498cf2a88d6928940efac5b4022d2ddae451d3b82913700bbfa2eeb3  MusicGrab-v1.8.0-win-x64.zip
-24bc0606c638de392907707b0128db09e823dbfa59b32b047ae3d6e234a9a7da  MusicGrab.exe
+762b24349087e319e5a45393ee89cdd5b33ea7bf173883ca7a53e728db28a978  MusicGrab-v1.8.0-win-x64.zip
+a30ff982649192fa916db77117e5cc947aab631aad3c72130f9926b22cd68b24  MusicGrab.exe
 ```
 
 ---
@@ -110,7 +110,7 @@ FFmpeg转码, MP3标签写入, 批量下载工具, 车机音乐, 智能代理路
 
 ```
 「乐取 MusicGrab」v1.8.0 粘贴链接即可批量提取各平台音轨，转成车机可播放 MP3。
-抖音/快手/酷狗内置解析 + yt-dlp 通用引擎（1500+ 站点），视频/文件夹/标签页可拖入。
+抖音/快手/酷狗内置解析 + yt-dlp 通用引擎（1500+ 站点），视频与文件夹可拖入。
 新增 BEST 不转码、V0 最佳 VBR、封面嵌入、任务结果重试；输出
 MP3/M4A/Opus/FLAC/WAV。国内直连、境外自动走代理，启动自检更新。免安装，
 仅供个人学习研究。

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import requests
 
 from .config import PROXY_TIMEOUT
+from .tls import requests_verify
 
 DEFAULT_PROXY_TIMEOUT = PROXY_TIMEOUT
 
@@ -239,9 +240,11 @@ def build_session(
 
     - `proxy` 非空时显式覆盖 http/https 代理
     - `trust_env=False` 时忽略系统注册表与环境变量中的代理（强制直连）
+    - 证书包路径失效时（打包版的临时目录被清理）改用覆盖层里的副本
     """
     session = requests.Session()
     session.trust_env = trust_env
+    session.verify = requests_verify()
     text = normalize_proxy(proxy)
     if text:
         session.proxies.update({"http": text, "https": text})

@@ -256,6 +256,42 @@ def test_file_url_to_path_rejects_http() -> None:
     assert file_url_to_path("https://example.com/a.mp4") is None
 
 
+def test_link_drop_is_disabled_by_default():
+    """v1.8.0 起暂时关闭浏览器标签页 / 链接拖放。"""
+    from douyin_mp3.dragdrop import ALLOW_LINK_DROP
+
+    assert ALLOW_LINK_DROP is False
+
+
+def test_split_drop_payload_drops_links_when_disabled(tmp_path: Path):
+    from douyin_mp3.dragdrop import parse_drop_data, split_drop_payload
+
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"x")
+    mime = FakeMime(
+        urls=["https://v.douyin.com/abc/"],
+        formats={URL_LIST_MIME: (video.as_uri() + "\r\n").encode()},
+    )
+    payload = parse_drop_data(mime)
+
+    links, paths, ignored = split_drop_payload(payload)
+    assert links == []
+    assert ignored is True
+    assert [p.name for p in paths] == ["a.mp4"]
+
+
+def test_split_drop_payload_keeps_links_when_enabled(tmp_path: Path):
+    from douyin_mp3.dragdrop import parse_drop_data, split_drop_payload
+
+    mime = FakeMime(urls=["https://v.douyin.com/abc/"])
+    payload = parse_drop_data(mime)
+
+    links, paths, ignored = split_drop_payload(payload, allow_links=True)
+    assert links == ["https://v.douyin.com/abc/"]
+    assert paths == []
+    assert ignored is False
+
+
 def test_empty_payload_property() -> None:
     mime = FakeMime(text="nothing here")
     payload = parse_drop_data(mime)
