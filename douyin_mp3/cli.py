@@ -89,6 +89,17 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("--keep-temp", action="store_true", help="保留临时文件便于排查")
 
     sub.add_parser("gui", help="启动图形界面（默认）")
+
+    check = sub.add_parser(
+        "check-update",
+        help="检查 yt-dlp / ffmpeg 组件是否有新版本（打包后内置组件不会自动更新）",
+    )
+    check.add_argument("--json", action="store_true", help="以 JSON 输出，便于脚本处理")
+    check.add_argument(
+        "--upgrade",
+        action="store_true",
+        help="发现新版本时直接下载安装（需要重启程序后生效）",
+    )
     return parser
 
 
@@ -116,11 +127,62 @@ def run_convert(args: argparse.Namespace) -> int:
     return 0 if summary.succeeded else 1
 
 
+def run_check_update(args: argparse.Namespace) -> int:
+    """检查组件版本，可选直接升级。"""
+    from . import updater
+
+    statuses = updater.check_components()
+    payload = [
+        {
+            "key": s.key,
+            "label": s.label,
+            "current": s.current,
+            "latest": s.latest,
+            "has_update": s.has_update,
+            "source": s.source,
+            "detail": s.detail,
+            "error": s.error,
+        }
+        for s in statuses
+    ]
+    if args.json:
+        print(__import__("json").dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"组件版本自检（{updater.overlay_root()}）")
+        for item in payload:
+            if item["error"]:
+                print(f"  {item['label']}: 检查失败 —— {item['error']}")
+                continue
+            mark = "有更新" if item["has_update"] else "已是最新"
+            print(f"  {item['label']}: {item['current'] or '未知'} → {item['latest']}  [{mark}]")
+            if item["detail"]:
+                print(f"      {item['detail']}")
+
+    if not args.upgrade:
+        return 0 if any(s.has_update for s in statuses) else 0
+
+    changed = False
+    for status in statuses:
+        if not status.has_update:
+            continue
+        try:
+            print(f"  正在升级 {status.label} → {status.latest} …", flush=True)
+            print("  " + updater.upgrade_component(status))
+            changed = True
+        except Exception as exc:
+            print(f"  升级 {status.label} 失败：{exc}", file=sys.stderr)
+    if changed:
+        print("  完成，重启程序后新版本才会生效。")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "convert":
         return run_convert(args)
+    if args.command == "check-update":
+        return run_check_update(args)
     from .gui import run_gui
 
     return run_gui()

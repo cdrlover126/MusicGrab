@@ -14,7 +14,7 @@ python -m PyInstaller --noconfirm --clean `
   --icon assets\icon.ico `
   --add-data "assets\icon.png;assets" `
   --version-file packaging\version_info.txt `
-  --collect-binaries imageio_ffmpeg `
+  --collect-all imageio_ffmpeg `
   --collect-all yt_dlp `
   --hidden-import douyin_mp3 `
   --hidden-import douyin_mp3.gui `

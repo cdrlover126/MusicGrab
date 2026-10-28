@@ -1,6 +1,6 @@
-"""打包 CSDN 资源上传用的发布物料（开发工具）。
+﻿"""打包 CSDN 资源上传用的发布物料（开发工具）。
 
-产出: dist/release/MusicGrab-v1.6.0-win-x64.zip
+产出: dist/release/MusicGrab-v1.7.0-win-x64.zip
       dist/release/发布说明.md
       dist/release/SHA256SUMS.txt
 """
@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 root = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
-version = "1.6.0"
+version = "1.7.0"
 rel = root / "dist" / "release"
 rel.mkdir(parents=True, exist_ok=True)
 
@@ -20,7 +20,7 @@ exe = root / "dist" / "MusicGrab.exe"
 if not exe.exists():
     raise SystemExit("未找到 dist\\MusicGrab.exe，请先运行 packaging\\build_exe.ps1")
 
-stage = rel / "MusicGrab-v1.6.0-win-x64"
+stage = rel / "MusicGrab-v1.7.0-win-x64"
 if stage.exists():
     shutil.rmtree(stage)
 stage.mkdir(parents=True)
@@ -34,8 +34,13 @@ for name in ("README.md", "LICENSE"):
     if src.exists():
         shutil.copy2(src, stage / name)
 
+# 发布说明（从 docs/releases 同步，作为资源详情页的底稿）
+release_notes = root / "docs" / "releases" / f"v{version}.md"
+if release_notes.exists():
+    shutil.copy2(release_notes, stage / "发布说明.md")
+
 # 使用说明
-usage = """乐取 MusicGrab v1.6.0 —— 使用说明
+usage = """乐取 MusicGrab v1.7.0 —— 使用说明
 ================================
 
 【这是什么】
@@ -65,11 +70,18 @@ Windows 桌面工具。同时支持直接处理本地视频文件。
 MP3（车机首选，ID3v2.3）/ WAV / FLAC / M4A / AAC / OGG / Opus / WMA
 默认 MP3 320kbps，44.1kHz 立体声。
 
+【组件自检与在线升级】
+程序内置的 yt-dlp 与 ffmpeg 是打包时冻结的副本，不会自动更新。
+启动时会联网比对官方最新版本，若发现新版本，窗口顶部会出现黄色提示条，
+点「立即升级」即可下载官方安装包并替换内置的那一份（仅需重启一次生效）。
+不想联网可在「输出设置 → 组件更新」里关掉自动检查。
+
 【常见问题】
 - 提示「代理无法连接」：代理软件没启动或端口不对，用「全部直连」或填正确地址
 - 提示「境外站点不可达」：需要配置代理
 - 提示「VIP/付费歌曲」：该曲目为平台付费内容，未登录无法下载
 - 抖音提示「页面结构未找到视频数据」：平台风控，程序会自动重试，可稍后再试
+- 某个站点突然解析不了：多半是内置 yt-dlp 过旧，用顶部的「立即升级」更新一下
 - 杀毒软件误报：PyInstaller 打包的常见误报，可加信任
 
 【重要声明】

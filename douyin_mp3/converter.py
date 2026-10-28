@@ -22,6 +22,15 @@ def find_ffmpeg(configured: str | None = None) -> str:
     candidates: list[str] = []
     if configured:
         candidates.append(configured)
+    # 「组件升级」安装的外置 ffmpeg 优先于系统与内置版本
+    try:
+        from .updater import overlay_ffmpeg_exe
+
+        overlay = overlay_ffmpeg_exe()
+        if overlay:
+            candidates.append(str(overlay))
+    except Exception:
+        pass
     env_path = shutil.which("ffmpeg")
     if env_path:
         candidates.append(env_path)

@@ -19,6 +19,7 @@ from .config import (
 )
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
+from . import updater
 
 
 def _icon_path() -> Path | None:
@@ -36,11 +37,13 @@ def _icon_path() -> Path | None:
 
 def run_gui() -> int:
     try:
-        from PySide6.QtCore import Qt, QThread, Signal
+        from PySide6.QtCore import Qt, QObject, QTimer, Signal
         from PySide6.QtGui import QFont
         from PySide6.QtWidgets import (
             QApplication,
+            QCheckBox,
             QComboBox,
+            QDialog,
             QFileDialog,
             QFrame,
             QGridLayout,
@@ -65,26 +68,249 @@ def run_gui() -> int:
 
     from . import APP_NAME, APP_NAME_EN, __version__
 
-    class Worker(QThread):
+    def _safe_emit(signal, *args) -> None:
+        """投递信号；窗口已销毁时静默忽略（否则抛 RuntimeError）。"""
+        try:
+            signal.emit(*args)
+        except RuntimeError:
+            pass
+
+    class WorkerSignals(QObject):
+        """批量转换的结果投递通道。"""
+
         log = Signal(str)
         item_start = Signal(int, int, str)
         item_done = Signal(object)
         finished_all = Signal(object)
 
-        def __init__(self, options: ConvertOptions, lines: list[str]):
-            super().__init__()
+    class Worker:
+        """批量转换后台任务。
+
+        与组件自检一样用 **daemon 线程**而非 QThread：转换过程中用户关闭窗口时，
+        QThread 会被「运行中销毁」，Qt 直接 terminate 掉进程；daemon 线程则会
+        随解释器退出，配合 ``processor.cancel()`` 让当前任务尽快收尾。
+        """
+
+        def __init__(self, options: ConvertOptions, lines: list[str], signals: WorkerSignals):
             self.processor = BatchProcessor(options)
             self.lines = lines
-            self.processor.on_log = self.log.emit
-            self.processor.on_item_start = lambda i, t, u: self.item_start.emit(i, t, u)
-            self.processor.on_item_done = self.item_done.emit
-            self.processor.on_all_done = self.finished_all.emit
+            self.signals = signals
+            self._running = False
+            self.processor.on_log = lambda msg: _safe_emit(signals.log, msg)
+            self.processor.on_item_start = lambda i, t, u: _safe_emit(signals.item_start, i, t, u)
+            self.processor.on_item_done = lambda res: _safe_emit(signals.item_done, res)
+            self.processor.on_all_done = lambda s: _safe_emit(signals.finished_all, s)
 
-        def run(self) -> None:
-            self.processor.run(self.lines)
+        def start(self) -> None:
+            import threading
+
+            def run() -> None:
+                try:
+                    self.processor.run(self.lines)
+                finally:
+                    self._running = False
+
+            self._running = True
+            threading.Thread(target=run, daemon=True, name="mg-batch").start()
+
+        def isRunning(self) -> bool:
+            return self._running
 
         def stop(self) -> None:
             self.processor.cancel()
+
+    class UpdateSignals(QObject):
+        """后台自检 / 升级的结果投递通道。
+
+        用 **daemon 线程 + Qt 信号** 而不是 QThread：QThread 在「运行中被销毁」
+        时会触发 ``QThread: Destroyed while thread is still running`` 并直接
+        终止进程——用户启动后立刻关闭程序就会踩到。daemon 线程随解释器退出，
+        窗口销毁后 emit 抛 RuntimeError 会被吞掉，不会有任何崩溃。
+        """
+
+        checked = Signal(object)
+        progress = Signal(int, int)
+        message = Signal(str)
+        succeeded = Signal(str)
+        failed = Signal(str)
+
+    class UpdateChecker:
+        """后台自检（daemon 线程）。"""
+
+        def __init__(self, signals: "UpdateSignals") -> None:
+            self.signals = signals
+
+        def start(self) -> None:
+            import threading
+
+            def worker() -> None:
+                try:
+                    result = updater.check_components()
+                except Exception as exc:
+                    result = exc
+                try:
+                    self.signals.checked.emit(result)
+                except RuntimeError:
+                    pass  # 窗口已销毁
+
+            threading.Thread(target=worker, daemon=True, name="mg-check").start()
+
+    class UpgradeWorker:
+        """后台下载与安装（daemon 线程）。"""
+
+        def __init__(self, signals: "UpdateSignals", statuses: list) -> None:
+            self.signals = signals
+            self.statuses = list(statuses)
+
+        def start(self) -> None:
+            import threading
+
+            def emit(sig, *args) -> None:
+                try:
+                    sig.emit(*args)
+                except RuntimeError:
+                    pass  # 对话框已销毁
+
+            def worker() -> None:
+                done: list[str] = []
+                try:
+                    for status in self.statuses:
+                        emit(self.signals.message, f"正在获取 {status.label} 的更新…")
+                        emit(self.signals.progress, 0, 0)
+                        result = updater.upgrade_component(
+                            status,
+                            on_progress=lambda d, t: emit(self.signals.progress, d, t),
+                        )
+                        done.append(result)
+                except Exception as exc:
+                    emit(self.signals.failed, str(exc))
+                    return
+                emit(self.signals.succeeded, "；".join(done))
+
+            threading.Thread(target=worker, daemon=True, name="mg-upgrade").start()
+
+    class UpgradeDialog(QDialog):
+        """组件升级对话框。"""
+
+        def __init__(self, parent, statuses: list) -> None:
+            super().__init__(parent)
+            self.setWindowTitle("组件升级")
+            self.setMinimumWidth(580)
+            self.statuses = list(statuses)
+            self.signals = UpdateSignals(self)
+            self.done_ok = False
+
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(18, 16, 18, 14)
+            layout.setSpacing(10)
+
+            intro = QLabel(
+                "组件过旧会导致部分站点解析失败、音频转码异常。"
+                "升级包来自 PyPI 官方仓库（国内自动切换镜像），"
+                "仅下载到本机并替换本程序自带的那一份。"
+            )
+            intro.setWordWrap(True)
+            intro.setStyleSheet("color: #4b5563;")
+            layout.addWidget(intro)
+
+            self.checks: dict[str, QCheckBox] = {}
+            for status in self.statuses:
+                box = QCheckBox(status.summary())
+                if status.detail:
+                    box.setToolTip(status.detail)
+                box.setChecked(True)
+                self.checks[status.key] = box
+                layout.addWidget(box)
+
+            self.status_label = QLabel("就绪")
+            self.status_label.setStyleSheet("color: #4b5563;")
+            layout.addWidget(self.status_label)
+
+            self.progress = QProgressBar()
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.progress.setFixedHeight(20)
+            layout.addWidget(self.progress)
+
+            self.signals.message.connect(self._on_message)
+            self.signals.progress.connect(self._on_progress)
+            self.signals.succeeded.connect(self._on_success)
+            self.signals.failed.connect(self._on_failure)
+
+            buttons = QHBoxLayout()
+            self.start_btn = QPushButton("开始升级")
+            self.start_btn.setMinimumWidth(112)
+            self.start_btn.clicked.connect(self.start_upgrade)
+            close_btn = QPushButton("关闭")
+            close_btn.setProperty("secondary", True)
+            close_btn.setMinimumWidth(88)
+            close_btn.clicked.connect(self.reject)
+            buttons.addWidget(self.start_btn)
+            buttons.addWidget(close_btn)
+            buttons.addStretch(1)
+            layout.addLayout(buttons)
+
+        def start_upgrade(self) -> None:
+            selected = [s for s in self.statuses if self.checks[s.key].isChecked()]
+            if not selected:
+                QMessageBox.information(self, "组件升级", "请至少勾选一个要升级的组件。")
+                return
+            self.start_btn.setEnabled(False)
+            self.progress.setValue(0)
+            worker = UpgradeWorker(self.signals, selected)
+            worker.start()
+
+        def _on_message(self, text: str) -> None:
+            self.status_label.setText(text)
+            self.progress.setValue(0)
+
+        def _on_progress(self, done: int, total: int) -> None:
+            if total > 0:
+                self.progress.setRange(0, total)
+                self.progress.setValue(done)
+                self.status_label.setText(f"正在下载… {done * 100 // total}%")
+            else:
+                self.progress.setRange(0, 0)
+
+        def _on_success(self, text: str) -> None:
+            self.done_ok = True
+            self.progress.setRange(0, 100)
+            self.progress.setValue(100)
+            self.status_label.setText(f"{text}。重启程序后新版本才会生效。")
+            self.start_btn.setEnabled(True)
+            self.start_btn.setText("已完成")
+            if getattr(sys, "frozen", False):
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Information)
+                box.setWindowTitle("组件升级完成")
+                box.setText(f"{text}\n\n重启程序后新版本才会生效。")
+                restart_btn = box.addButton("立即重启", QMessageBox.AcceptRole)
+                box.addButton("稍后再说", QMessageBox.RejectRole)
+                box.exec()
+                if box.clickedButton() is restart_btn:
+                    self._restart()
+            else:
+                QMessageBox.information(
+                    self, "组件升级完成", f"{text}\n\n重启程序后新版本才会生效。"
+                )
+
+        def _on_failure(self, text: str) -> None:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.status_label.setText("升级失败")
+            self.start_btn.setEnabled(True)
+            self.start_btn.setText("重试")
+            QMessageBox.warning(self, "组件升级失败", f"{text}\n\n已保留原有组件，可继续正常使用。")
+
+        def _restart(self) -> None:
+            import subprocess
+
+            try:
+                subprocess.Popen([sys.executable])
+            except OSError:
+                pass
+            self.accept()
+            QApplication.quit()
 
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
@@ -122,6 +348,7 @@ def run_gui() -> int:
                 QTabBar::tab:hover:!selected { background: #f3f4f6; }
                 QProgressBar { border: 1px solid #d8d8e0; border-radius: 5px; text-align: center; background: #ffffff; height: 20px; }
                 QProgressBar::chunk { background: #22c55e; border-radius: 5px; }
+                #updateBanner { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; }
                 QLabel { color: #1f2937; }
                 """
             )
@@ -133,6 +360,28 @@ def run_gui() -> int:
             body = QVBoxLayout()
             body.setContentsMargins(0, 0, 0, 0)
             body.setSpacing(10)
+
+            # 顶部更新横幅：启动自检发现组件有新版本时出现
+            self.update_banner = QFrame()
+            self.update_banner.setObjectName("updateBanner")
+            banner_layout = QHBoxLayout(self.update_banner)
+            banner_layout.setContentsMargins(14, 8, 10, 8)
+            banner_layout.setSpacing(10)
+            self.update_label = QLabel()
+            self.update_label.setWordWrap(True)
+            self.update_label.setStyleSheet("color: #78350f;")
+            banner_layout.addWidget(self.update_label, 1)
+            self.update_btn = QPushButton("立即升级")
+            self.update_btn.setMinimumWidth(92)
+            self.update_btn.clicked.connect(self.open_upgrade_dialog)
+            banner_layout.addWidget(self.update_btn)
+            self.ignore_btn = QPushButton("忽略此版本")
+            self.ignore_btn.setProperty("secondary", True)
+            self.ignore_btn.setMinimumWidth(96)
+            self.ignore_btn.clicked.connect(self.ignore_updates)
+            banner_layout.addWidget(self.ignore_btn)
+            self.update_banner.setVisible(False)
+            body.addWidget(self.update_banner)
 
             title = QLabel("批量提取各平台音轨，转为车机可播放的 MP3")
             title.setStyleSheet("font-size: 15px; font-weight: bold;")
@@ -247,6 +496,7 @@ def run_gui() -> int:
             self._add_setting(6, "Cookies 文件", self._make_cookies_row())
             self._add_setting(7, "读取浏览器 Cookies", self._make_browser_row())
             self._add_setting(8, "输出目录", self._make_dir_row())
+            self._add_setting(9, "组件更新", self._make_update_row())
             self.tabs.addTab(self.settings_page, "输出设置")
 
             self.log_page = QWidget()
@@ -289,6 +539,13 @@ def run_gui() -> int:
             shell.setLayout(root)
             self.setCentralWidget(shell)
             self._fit_tabs()
+
+            # 组件自检（启动后异步进行，不阻塞界面）
+            self._pending_updates: list = []
+            self._update_signals = UpdateSignals(self)
+            self._update_signals.checked.connect(self._on_check_done)
+            self._check_started = False
+            QTimer.singleShot(900, self.start_update_check)
 
         def _add_setting(self, row: int, label: str, widget: QWidget) -> None:
             lbl = QLabel(label)
@@ -445,6 +702,27 @@ def run_gui() -> int:
             h.addWidget(btn, 0)
             return w
 
+        def _make_update_row(self) -> QWidget:
+            w = QWidget()
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(10)
+            self.auto_check_box = QCheckBox("启动时检查 yt-dlp / ffmpeg 更新")
+            self.auto_check_box.setToolTip(
+                "yt-dlp 与 ffmpeg 被打包在程序内部，不会自动更新；\n"
+                "开启后每次启动会联网比对官方最新版本并提示升级。"
+            )
+            self.auto_check_box.setChecked(bool(updater.load_state().get("auto_check", True)))
+            self.auto_check_box.toggled.connect(self._on_auto_check_toggled)
+            h.addWidget(self.auto_check_box)
+            h.addStretch(1)
+            self.check_now_btn = QPushButton("立即检查")
+            self.check_now_btn.setProperty("secondary", True)
+            self.check_now_btn.setFixedWidth(88)
+            self.check_now_btn.clicked.connect(lambda: self.start_update_check(manual=True))
+            h.addWidget(self.check_now_btn, 0)
+            return w
+
         def pick_dir(self) -> None:
             chosen = QFileDialog.getExistingDirectory(self, "选择输出目录", self.dir_edit.text())
             if chosen:
@@ -598,11 +876,12 @@ def run_gui() -> int:
                 cookies_file=self.cookies_edit.text().strip() or None,
                 cookies_from_browser=self.browser_box.currentData() or None,
             )
-            self.worker = Worker(options, lines)
-            self.worker.log.connect(self.append_log)
-            self.worker.item_start.connect(self._on_item_start)
-            self.worker.item_done.connect(self._on_item_done)
-            self.worker.finished_all.connect(self._on_finished)
+            self.worker_signals = WorkerSignals(self)
+            self.worker = Worker(options, lines, self.worker_signals)
+            self.worker_signals.log.connect(self.append_log)
+            self.worker_signals.item_start.connect(self._on_item_start)
+            self.worker_signals.item_done.connect(self._on_item_done)
+            self.worker_signals.finished_all.connect(self._on_finished)
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             # 只锁住「输出设置」页的内容，页签本身保持可点击，
@@ -627,6 +906,12 @@ def run_gui() -> int:
                 self.stop_btn.setEnabled(False)
                 self.hint_label.setText("正在停止…")
 
+        def closeEvent(self, event) -> None:  # noqa: ANN001
+            """关闭时先请求停止当前任务，避免后台线程被硬杀。"""
+            if self.worker and self.worker.isRunning():
+                self.worker.stop()
+            super().closeEvent(event)
+
         def _on_item_done(self, result: object) -> None:
             status = getattr(result, "status", "")
             if status == "ok":
@@ -647,6 +932,74 @@ def run_gui() -> int:
             self.progress.setFormat(f"完成：成功 {ok} / 失败 {fail} · %p%")
             self.hint_label.setText(f"完成：成功 {ok} / 失败 {fail}")
             QMessageBox.information(self, APP_NAME, f"转换完成\n成功：{ok}\n失败：{fail}")
+
+        # ── 组件自检与升级 ─────────────────────────────────────
+        def start_update_check(self, manual: bool = False) -> None:
+            """启动后台自检（不阻塞界面）。
+
+            `manual=True` 时无视「启动时检查」开关，由用户主动触发。
+            """
+            if self._check_started:
+                if manual:
+                    self.append_log("组件检查正在进行中，请稍候…")
+                return
+            if not manual and not updater.load_state().get("auto_check", True):
+                return
+            self._check_started = True
+            UpdateChecker(self._update_signals).start()
+
+        def _on_check_done(self, result: object) -> None:
+            self._check_started = False
+            if isinstance(result, Exception):
+                # 自检失败不影响使用，只在日志里留痕
+                self.append_log(f"组件更新检查失败（不影响使用）：{result}")
+                return
+            if not isinstance(result, list):
+                return
+            current = updater.current_ytdlp_version()
+            ffmpeg_ver = updater.current_ffmpeg_version()
+            pending = [
+                status
+                for status in result
+                if getattr(status, "has_update", False)
+                and not updater.is_ignored(status.key, status.latest)
+            ]
+            self.append_log(
+                f"组件自检：yt-dlp {current or '未知'} / ffmpeg {ffmpeg_ver or '未知'}"
+            )
+            if not pending:
+                self.append_log("组件均为最新版本")
+                return
+            self._pending_updates = pending
+            parts = [status.summary() for status in pending]
+            self.update_label.setText(
+                "⚠ 检测到组件更新可用：" + "；".join(parts)
+                + "。yt-dlp 过旧会导致部分站点解析失败。"
+            )
+            self.update_banner.setVisible(True)
+
+        def _on_auto_check_toggled(self, checked: bool) -> None:
+            state = updater.load_state()
+            state["auto_check"] = bool(checked)
+            updater.save_state(state)
+
+        def ignore_updates(self) -> None:
+            for status in self._pending_updates:
+                updater.ignore_version(status.key, status.latest)
+            self._pending_updates = []
+            self.update_banner.setVisible(False)
+            self.append_log("已忽略本次更新提示；可在覆盖层目录的 state.json 中清除记录后恢复")
+
+        def open_upgrade_dialog(self) -> None:
+            if not self._pending_updates:
+                self.start_update_check(manual=True)
+                return
+            dialog = UpgradeDialog(self, self._pending_updates)
+            dialog.exec()
+            if getattr(dialog, "done_ok", False):
+                self._pending_updates = []
+                self.update_banner.setVisible(False)
+                self.append_log("组件已升级，重启程序后生效")
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)

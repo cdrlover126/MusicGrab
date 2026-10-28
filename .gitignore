@@ -10,7 +10,11 @@ venv/
 *.spec.bak
 packaging/icon_preview.png
 packaging/layout_probe.png
+packaging/update_banner_probe.png
+packaging/update_settings_probe.png
 *.mp3
 *.part
 .DS_Store
 Thumbs.db
+packaging/_race_sample.mp4
+packaging/_quit_while_checking.py

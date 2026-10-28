@@ -32,6 +32,7 @@
 - **车机兼容**：44.1kHz 双声道、文件名自动编号、ID3v2.3 标签（歌名/歌手/专辑/来源注释）
 - **登录站点支持**：`--cookies`（Netscape 格式）或 `--cookies-from-browser`（edge/chrome/firefox/chromium/brave/opera）
 - **智能路由**：默认「智能」模式——**国内平台直连**（CDN 全球可达），**境外站点自动走代理**（未填代理时先探测直连可达性，不通则提示配置代理）。另有「全部直连」「全部走代理」两种强制模式。启动前会**预检代理连通性**，代理不通会立即给出明确提示（不再误报为“风控”）
+- **组件自检与在线升级**：内置的 yt-dlp / ffmpeg 是打包时冻结的副本，**不会自动更新**。程序启动时联网比对官方最新版本，发现新版本会在窗口顶部弹出提示条，可一键下载官方安装包就地升级（见 [4.5](#45-组件自检与在线升级)）
 - **内置 ffmpeg**：使用 `imageio-ffmpeg`，开箱即用无需手动配置
 - **稳健处理**：防风控间隔、失败自动重试、文件重名自动编号、转换 CSV 报告
 - **双界面**：图形界面（PySide6）+ 命令行（`douyin-mp3`）
@@ -116,6 +117,11 @@ douyin-mp3 convert "D:\视频\MV.mp4" "D:\视频\翻唱.mkv" -q 320 -f flac
 
 # 指定输出格式（mp3 / wav / flac / m4a / aac / ogg / opus / wma）
 douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
+
+# 检查 yt-dlp / ffmpeg 组件是否有新版本（打包后内置组件不会自动更新）
+douyin-mp3 check-update
+douyin-mp3 check-update --json          # 脚本化处理
+douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效）
 ```
 
 #### 命令行参数说明
@@ -155,7 +161,32 @@ douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
 
 **本地文件**：程序会自动识别输入行中的本地路径，支持 30+ 常见视频容器（mp4 / mkv / mov / avi / flv / f4v / wmv / webm / ts / m2ts / 3gp / rmvb / rm / mpg / mpeg / vob / asf / ogv / divx …）及常见音频格式（mp3 / wav / flac / m4a / ogg / opus / wma / ape / aiff…）。本地文件**不需要解析与下载**，直接用 ffmpeg 提取音轨，标题取自文件名。
 
-### 4.4 路由模式（直连 / 代理）
+### 4.4 组件自检与在线升级
+
+程序用 PyInstaller 打成单文件 exe，**yt-dlp 与 ffmpeg 都被「冻结」在 exe 内部**，
+上游更新不会自动生效。而 yt-dlp 几乎每周发版，原因就是目标站点一改版它就得跟着修——
+这意味着用户手里的旧程序会**静默失效**：昨天还能下的链接今天下不到了，
+而用户既不知道原因，也不可能自己升级一个绿色单文件 exe。
+
+v1.7.0 起加入了一套「运行时自愈」机制：
+
+| 阶段 | 行为 |
+|---|---|
+| **启动自检** | 后台线程联网比对官方最新稳定版（**不阻塞界面**，检查失败静默降级） |
+| **提示** | 窗口顶部弹出黄色横幅：`⚠ 检测到组件更新可用：yt-dlp 2026.08.19 → 2026.10.26`，可「立即升级 / 忽略此版本」 |
+| **升级** | 从 PyPI 官方仓库下载官方 wheel（国内自动切镜像），校验 SHA256 后解压安装到本机覆盖层 |
+| **生效** | yt-dlp 走自定义 import finder 优先加载外置副本；ffmpeg 走路径优先级 + `IMAGEIO_FFMPEG_EXE` 环境变量。**重启一次即生效** |
+
+- 下载源：优先 `pypi.org`（拿最新稳定版号），超时或失败自动切清华 / 阿里 / 腾讯 / 华为镜像
+- 覆盖层目录：`%LOCALAPPDATA%\MusicGrab\`（`yt_dlp/`、`ffmpeg/`、`state.json`）
+- 「忽略此版本」会记在 `state.json` 里，同一版本不再提示
+- 不想联网：GUI「输出设置 → 组件更新」可关闭启动时检查，或点「立即检查」手动触发
+- 升级失败**不会破坏现有程序**：内置组件始终保留，任何一步失败都回退到内置版本
+
+> 内置的抖音/快手/酷狗解析器是自研实现，**不依赖 yt-dlp**，因此 yt-dlp 过旧只影响
+> 「其他 1500+ 站点」这条兜底线，核心功能不受影响。
+
+### 4.5 路由模式（直连 / 代理）
 
 程序**逐条**决定每条链接走直连还是走代理，规则如下（GUI「输出设置 → 代理」，CLI `--route`）：
 
@@ -195,7 +226,8 @@ douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
 | **“境外站点 xxx 在当前网络下不可达”** | 该站点在当前网络下无法直连 | 在「输出设置 → 代理」填写代理地址（如 `http://127.0.0.1:7890`），智能模式会自动对境外站点使用它 |
 | **境外站点连接失败 / 超时** | 代理未配置或配置错误 | 同上；或把路由模式改为「全部代理」强制所有请求走代理 |
 | **读取浏览器 cookies 失败** | 浏览器未完全退出、加密存储、权限受限 | 关闭所有浏览器进程（检查任务管理器），以当前用户权限运行程序，再重试 |
-| **转码报错 / 找不到 ffmpeg** | 环境异常或自定义路径错误 | 默认已用 `imageio-ffmpeg`，如仍报错可用 `--ffmpeg "C:\path\to\ffmpeg.exe"` 手动指定 |
+| **某个站点突然解析不了** | 内置 yt-dlp 版本过旧（目标站点改版后 yt-dlp 需要跟进更新） | 用窗口顶部的「立即升级」把 yt-dlp 更新到最新；或从「输出设置 → 组件更新」点「立即检查」 |
+| **转码报错 / 找不到 ffmpeg** | 环境异常或自定义路径错误 | 默认已用 `imageio-ffmpeg`，如仍报错可用 `--ffmpeg "C:\path\to\ffmpeg.exe"` 手动指定；也可尝试升级 ffmpeg 组件 |
 | **音质偏低 / 只能提取试听片段** | 平台限制或仅提供低码率音轨 | 部分平台确实只提供预览音频，换其他链接或站点可能会有更好选择 |
 | **文件名乱码/特殊字符** | 原标题含特殊符号 | 程序已做文件名清洗，会自动替换非法字符并用编号避免重名 |
 | **本地文件没被识别** | 扩展名不在支持列表 | 确认是常见视频/音频格式（mp4/mkv/mov/avi/flv/wmv/webm/ts/rmvb/mpg… 或 mp3/wav/flac/m4a/ogg/opus/wma）；路径需为完整路径 |
@@ -231,6 +263,7 @@ pytest tests -q
 
 相关文档：
 - [docs/SUPPORTED_SITES.md](docs/SUPPORTED_SITES.md) — 平台支持清单与实测明细
+- [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md) — 版本发布说明
 - [docs/STORE_CHECKLIST.md](docs/STORE_CHECKLIST.md) — Microsoft Store 发布检查清单
 - [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md) — 隐私政策模板
 

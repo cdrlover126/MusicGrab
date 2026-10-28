@@ -1,4 +1,4 @@
-# 从 0 到 1：用 Python 写一款支持 1500+ 站点的音轨批量提取工具（含完整架构与踩坑复盘）
+﻿# 从 0 到 1：用 Python 写一款支持 1500+ 站点的音轨批量提取工具（含完整架构与踩坑复盘）
 
 > **原创声明**：本文为原创技术文章，代码与文档均基于作者实际开发项目整理。
 > **首发声明**：首发于 CSDN。
@@ -11,15 +11,16 @@
 > 做这个项目的起因很朴素：车机 U 盘里塞满了 MP3，但每次想加新歌都得先下载、再用别的工具转格式、再手动改文件名和标签。
 > 于是我想：**把「粘贴链接 → 拿到能直接插车机播的 MP3」这件事，压到一次双击之内。**
 >
-> 这篇文章完整记录了从需求分析、架构设计、协议逆向，到打包分发、缺陷复盘的全过程。里面包含 **12 个真实踩过的坑**，其中 3 个是我自己写出来的 bug 被用户反馈后才发现的——我把它们的定位过程一并写了出来，因为**定位思路比结论更值钱**。
+> 这篇文章完整记录了从需求分析、架构设计、协议逆向，到打包分发、缺陷复盘的全过程。里面包含 **14 个真实踩过的坑**，其中 3 个是我自己写出来的 bug 被用户反馈后才发现的——我把它们的定位过程一并写了出来，因为**定位思路比结论更值钱**。
 
 **你将读到：**
 
 - 一套「双引擎 + 智能路由 + 多格式转码」的完整架构设计
 - 抖音 / 酷狗的接口逆向思路（不涉及破解 DRM）
-- 12 个真实坑位的定位与修复过程（含 3 个自造 bug）
+- 14 个真实坑位的定位与修复过程（含 3 个自造 bug）
+- 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 64 个单元测试的组织方式
+- 全部源码结构与 94 个单元测试的组织方式
 
 ---
 
@@ -31,7 +32,7 @@
 4. [关键实现：智能路由](#4-关键实现智能路由)
 5. [关键实现：多格式输出与本地文件](#5-关键实现多格式输出与本地文件)
 6. [界面演进：从命令行到选项页](#6-界面演进从命令行到选项页)
-7. [踩坑复盘：12 个真实坑位](#7-踩坑复盘12-个真实坑位)
+7. [踩坑复盘：14 个真实坑位](#7-踩坑复盘14-个真实坑位)
 8. [工程化：测试、打包与分发](#8-工程化测试打包与分发)
 9. [一次认真的合规评估](#9-一次认真的合规评估)
 10. [效果与数据](#10-效果与数据)
@@ -100,9 +101,10 @@ douyin-mp3/
 │   ├── converter.py     # ffmpeg 转码 + 多格式标签写入
 │   ├── cookies.py       # 浏览器/文件 cookies 读取
 │   ├── batch.py         # 批处理主流程
+│   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 64 个单元测试
+├── tests/               # 94 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -413,9 +415,9 @@ QSpinBox::down-button { height: 13px; }
 
 ---
 
-## 7. 踩坑复盘：12 个真实坑位
+## 7. 踩坑复盘：14 个真实坑位
 
-这一节是全文最有价值的部分。**12 个坑里有 3 个是我自己写出来的 bug**，而且都是用户先发现、我后定位的。
+这一节是全文最有价值的部分。**14 个坑里有 3 个是我自己写出来的 bug**，而且都是用户先发现、我后定位的。
 
 ### 坑位 1：QSpinBox 的上下箭头"消失"了 🔴
 
@@ -612,17 +614,69 @@ def apply() -> bool:
 
 同一条链接，第一次失败第二次成功——这不是 bug，是平台风控。程序内置 3 次重试（带退避）能覆盖绝大多数情况。**这一点值得单独写出来**，因为初版文档把它写成了"解析失败"，误导了不少用户。
 
+### 坑位 14：后台线程没等完就退出，进程直接被终止 🔴
+
+**现象**：加了「启动自检」功能后，用户反馈"双击程序后立刻关闭，会弹一个错误框，程序自己退出了"。
+
+**原因**：自检跑在 `QThread` 上，而窗口关闭时那个 `QThread` 对象被销毁——但它还在联网。Qt 对这种情况的处置是打印
+
+```text
+QThread: Destroyed while thread is still running
+```
+
+然后直接 `std::terminate()`，**进程异常终止**（不是优雅退出）。用户看到的就是"程序崩了"。
+
+**修法**：不用 `QThread`，改用 **daemon 线程 + Qt 信号投递**：
+
+```python
+class UpdateSignals(QObject):
+    checked = Signal(object)
+
+def start(self) -> None:
+    import threading
+
+    def worker() -> None:
+        try:
+            result = updater.check_components()
+        except Exception as exc:
+            result = exc
+        try:
+            self.signals.checked.emit(result)
+        except RuntimeError:
+            pass  # 窗口已销毁
+
+    threading.Thread(target=worker, daemon=True).start()
+```
+
+daemon 线程随解释器退出而结束，不会触发 Qt 的"运行中销毁"检查；窗口销毁后 `emit` 会抛 `RuntimeError`，吞掉即可。
+
+**顺带发现的老问题**：改完才意识到，**批量转换的 Worker 用的是同一套 `QThread` 模式**——也就是说，
+「转换到一半关掉窗口」早就会让进程异常终止。这是个一直存在、只是没人报告过的坑。
+一并改成 daemon 线程，并补上 `closeEvent`：关闭窗口时先 `processor.cancel()` 请求停止，
+让当前任务尽快收尾。
+
+回归验证方式很直接——三个场景分别退出，断言退出码为 0 且无线程告警：
+
+```text
+[1] 启动后 100ms 立即退出（自检尚未开始）   退出码 0
+[2] 启动后 1.6s 退出（自检正在联网）        退出码 0
+[3] 转换进行中退出（Worker 正在跑）        退出码 0
+```
+
+> **教训**：任何"启动即触发"或"用户可随时打断"的后台任务，都必须假设**用户会在任务完成前关掉程序**。
+> `QThread` 的生命周期绑定在它的宿主对象上，而 GUI 对象的生命周期短于用户的耐心。
+
 ---
 
 ## 8. 工程化：测试、打包与分发
 
 ### 8.1 测试
 
-64 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、标签写入：
+94 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、标签写入，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-64 passed in 0.92s
+94 passed in 1.31s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -674,6 +728,189 @@ python packaging/probe_layout.py 0 --paste   # 0=输出设置页，--paste=填�
 ```
 
 ![主界面](../images/01-主界面-输出设置.png)
+
+### 8.4 运行时自愈：让冻结在 exe 里的 yt-dlp 能自我更新
+
+`--collect-all yt_dlp` 的代价是：**yt-dlp 被永久冻结在 exe 里**。上游更新不会自动生效，
+而 yt-dlp 几乎每周发版——原因就是目标站点一改版它就得跟着修。
+
+于是用户会遇到一种最糟糕的失败模式：
+
+> 昨天还能下的链接，今天突然下不到了。程序不报错、界面不变化，用户完全不知道发生了什么，
+> 更不可能自己升级一个绿色单文件 exe。
+
+我在 v1.7.0 里做了一套「运行时自愈」：**启动自检 → 提示 → 下载官方包 → 就地替换**。
+
+#### 第一步：能不能让外置的 yt-dlp 盖过内置的？
+
+这是整套机制的技术核心。直觉上只需要把外置目录塞进 `sys.path` 前面，但**在 PyInstaller 里不行**：
+
+```text
+sys.meta_path = [BuiltinImporter, FrozenImporter, PathFinder]
+                                  ↑ 优先级高于 sys.path
+```
+
+`FrozenImporter` 挂在 `sys.meta_path` 上，只要模块被打进 PYZ，它就优先于 `sys.path` 被找到。
+解法是显式插一个自己的 finder 抢在它前面：
+
+```python
+class _ExternalPackageFinder:
+    """让外置包目录优先于 PyInstaller 冻结模块被导入。"""
+
+    def __init__(self, root: str, package: str) -> None:
+        self.root = root
+        self.package = package
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != self.package and not fullname.startswith(self.package + "."):
+            return None
+        from importlib.machinery import PathFinder
+
+        search = path if path is not None else [self.root]
+        spec = PathFinder.find_spec(fullname, search)
+        # 二次确认：解析结果必须真的落在外置目录里
+        origin = Path(spec.origin).resolve()
+        root = Path(self.root).resolve()
+        if root != origin and root not in origin.parents:
+            return None
+        return spec
+```
+
+必须挂到 `sys.meta_path[0]`，而且要在**任何 `import yt_dlp` 之前**完成安装。
+项目里 yt-dlp 是懒加载的（`import yt_dlp` 写在函数体内），所以只要在 `__init__.py` 里
+提前调用一次 `apply_overlay()` 就行。
+
+> 实测（冻结态）：装上 finder 后 `yt_dlp.__file__` 从 `_MEIPASS\yt_dlp\__init__.py`
+> 变成了 `%LOCALAPPDATA%\MusicGrab\yt_dlp\__init__.py`，版本号从 2026.08.19 变成 2026.10.26，
+> extractor 数量从 1751 变成 1754。
+
+ffmpeg 那边简单得多——`imageio_ffmpeg.get_ffmpeg_exe()` 本来就优先读 `IMAGEIO_FFMPEG_EXE`
+环境变量，只要再把外置路径插到 `find_ffmpeg()` 的候选链最前面就够了。
+
+#### 第二步：版本号怎么比？
+
+yt-dlp 的版本号是**日期型**的：`2026.10.26`。这里有个经典陷阱：
+
+```python
+"2026.10.26" < "2026.08.19"   # False —— 字符串比较恰好对了？
+# 但 "2026.8.19" < "2026.10.26"  # True —— 字符串比较错了！
+```
+
+字符串比较在日期型版本上**时对时错**（取决于哪个月份在前），所以必须按数字元组比：
+
+```python
+def version_tuple(text: str) -> tuple[int, ...]:
+    return tuple(int(p) for p in re.findall(r"\d+", text or "")) or (0,)
+```
+
+#### 第三步：国内网络怎么拿到最新版？
+
+`pypi.org` 的 JSON API 最好用（能直接拿到稳定版号和 wheel 的 sha256），但国内冷启动实测
+**39 秒**——用户会以为程序卡死了。所以做成了「官方优先 + 镜像兜底」：
+
+| 源 | 实测延迟 | 说明 |
+|---|---|---|
+| `pypi.org/pypi/<pkg>/json` | 0.7s（冷启动 39s） | 官方，同时给出 sha256 |
+| 清华 / 阿里 / 腾讯 / 华为 simple index | 0.3–0.5s | PEP 503 索引，版本号需自行解析 |
+
+镜像的 simple index 有两个坑，都踩过：
+
+1. **它不是按版本号排序的**——`2026.10.26` 排在 `2026.8.19` **前面**，取最后一个会拿到旧版
+2. **它混着 dev/rc 预发布版本**——`2026.9.27.232945.dev0` 这种版本号必须过滤掉
+
+还有两个更隐蔽的坑：
+
+3. **PyPI 的发行名是 `yt-dlp`，但 wheel 文件名是 `yt_dlp`**（下划线），匹配时必须归一化
+4. **yt-dlp 的 `__init__.py` 根本不导出 `__version__`**——版本号只在 `version.py` 里；
+   而 `imageio-ffmpeg` 的版本号又在 `_definitions.py` 里。读版本号要试三个位置：
+
+```python
+for name in ("version.py", "_definitions.py", "__init__.py"):
+    match = _VERSION_ASSIGN_RE.search((package_dir / name).read_text(encoding="utf-8"))
+```
+
+#### 第四步：下载与安装怎么做到"失败也不出事"
+
+```python
+def download_file(url, dest, *, expected_sha256="", on_progress=None):
+    """流式下载 + sha256 校验；校验不过直接删临时文件并抛错。"""
+    ...
+    actual = digest.hexdigest()
+    if expected_sha256 and actual.lower() != expected_sha256.lower():
+        tmp.unlink(missing_ok=True)
+        raise UpdateError("校验失败：下载文件的 SHA256 与官方公布值不一致")
+    tmp.replace(dest)
+```
+
+安装走「**解压到临时目录 → 原子替换 → 失败回滚**」：
+
+```python
+def _replace_dir(new_dir: Path, target: Path) -> None:
+    backup = target.with_name(target.name + ".bak")
+    if target.exists():
+        target.replace(backup)
+    try:
+        new_dir.replace(target)
+    except OSError:
+        if backup.exists():
+            backup.replace(target)   # 回滚
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
+```
+
+解压还要防 **zip slip**（恶意压缩包用 `../` 写到目录外）：
+
+```python
+def _safe_target(root: Path, name: str) -> Path:
+    target = (root / name).resolve()
+    base = root.resolve()
+    if base != target and base not in target.parents:
+        raise UpdateError(f"压缩包内含非法路径：{name}")
+    return target
+```
+
+**最重要的一条底线：内置组件永远保留。** 升级的任何一步失败，都退回内置版本继续工作，
+绝不会出现"升级失败 → 程序打不开"的情况。
+
+#### 界面与体验
+
+启动后后台线程自检（不阻塞界面，失败静默降级），发现新版本就在窗口顶部弹一条横幅：
+
+![组件更新横幅](../images/08-组件更新横幅.png)
+
+- 「立即升级」→ 弹窗显示要升什么，带进度条下载安装
+- 「忽略此版本」→ 记进 `state.json`，同一版本不再提示
+- 「输出设置 → 组件更新」→ 可关掉启动时自动检查，或点「立即检查」手动触发
+
+覆盖层目录（`%LOCALAPPDATA%\MusicGrab\`）：
+
+```text
+yt_dlp/     外置 yt-dlp 包（import 时优先于内置）
+ffmpeg/     外置 ffmpeg 可执行文件
+state.json  升级记录、已忽略版本、偏好设置
+```
+
+另外提供了一个 CLI 子命令，方便脚本化与排障：
+
+```powershell
+MusicGrab check-update              # 打印当前版本与最新版本
+MusicGrab check-update --json       # 结构化输出，便于脚本处理
+MusicGrab check-update --upgrade    # 直接下载安装
+```
+
+```text
+组件版本自检（C:\Users\<用户>\AppData\Local\MusicGrab）
+  yt-dlp（通用解析引擎）: 2026.08.19 → 2026.10.26  [有更新]
+  ffmpeg（转码内核）: 0.6.0 → 0.6.0  [已是最新]
+      内置 ffmpeg 7.1
+```
+
+最后一个小遗憾：yt-dlp 升级**需要重启一次**才生效——当前会话里已经 import 过的模块没法热替换。
+ffmpeg 则是即时的，因为它是子进程，每次转码都会重新找一遍路径。
+
+> 顺带一提：内置的抖音/快手/酷狗解析器是自研实现，**完全不依赖 yt-dlp**，
+> 所以 yt-dlp 过旧只影响「其他 1500+ 站点」这条兜底线，核心功能不受影响。
+> 这也是当初坚持做双引擎的额外收益。
 
 ---
 
@@ -765,20 +1002,32 @@ configuration: --enable-gpl --enable-version3 ...
 | AAC / OGG / Opus | — | ADTS / Vorbis / Opus Comment ✅ |
 | WMA | wmv2 | ASF `WM/AlbumTitle` ✅ |
 
+### 组件升级链路实测
+
+| 环节 | 实测结果 |
+|---|---|
+| 版本自检 | 内置 yt-dlp **2026.08.19** → 官方最新 **2026.10.26**，判定正确 |
+| 远端查询 | pypi.org 0.7s；清华/阿里/腾讯/华为镜像 0.3–0.5s |
+| 下载安装 | 3.19MB wheel 下载 + SHA256 校验 + 解压安装，全程无人工干预 |
+| 覆盖生效 | `yt_dlp.__file__` 由 `_MEIPASS\yt_dlp\__init__.py` 切到 `%LOCALAPPDATA%\MusicGrab\yt_dlp\__init__.py` |
+| 版本/规模 | 版本 2026.08.19 → **2026.10.26**；extractor **1751 → 1754** |
+| 失败回滚 | 校验失败/解压异常时删除临时文件、保留内置副本，程序照常可用 |
+
 ---
 
 ## 11. 资源下载与使用
 
 ### 下载
 
-**CSDN 资源下载**：见本文关联资源 `MusicGrab-v1.6.0-win-x64.zip`
+**CSDN 资源下载**：见本文关联资源 `MusicGrab-v1.7.0-win-x64.zip`
 
 - 单文件 `MusicGrab.exe`，**免安装、免 Python 环境**
 - 内置 ffmpeg 与 yt-dlp，离线可转码
-- 附 `使用说明.txt` / `README.md` / `LICENSE`
+- 附 `使用说明.txt` / `发布说明.md` / `README.md` / `LICENSE`
+- v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 
-> SHA256（发布包）：`ba9b2b4bd091eda5f38a15b157e818ae0318aac13b6737e3c438410f1a6a5b48`
-> SHA256（exe）：`c196c2571063d0147e4ab30c068e45698735051504de354f1b9fec25dccca612`
+> SHA256（发布包）：`3f9b9e6f691c2f1039a434cc45fb03143aaeac2504682f3e924cd3ed6425681b`
+> SHA256（exe）：`3ee3d6134d83c5a66efa0884151d14df50a4be2bca4e07ef0a1c7e3d9aab9c6f`
 
 ### 快速上手
 
@@ -817,12 +1066,20 @@ MusicGrab convert "https://youtu.be/xxxx" --proxy http://127.0.0.1:7890
 
 做完功能我才意识到：真正的约束来自**版权和平台协议**，而不是代码。把合规评估放在开发之前，能省下大量沉没成本。
 
+**4. 依赖的「冻结」是工具类应用最隐蔽的债务**
+
+打包成单文件 exe 那天很爽，却埋下了一个看不见的坑：yt-dlp 被永久冻结在里面，而它几乎每周都在更新。等到用户反馈"昨天还能下的链接今天下不到了"，你才意识到——**用户没法自己升级一个绿色 exe**。
+
+这件事逼着我补上了运行时自愈机制（§8.4）。回头看，它比任何单个站点解析器都更影响工具的**长期可用性**：平台改版了可以修，解析器坏了可以换，但依赖冻结会让整个分发模型在半年后彻底失效。
+
 ### 后续计划
 
 - [ ] 平台解析拆成**可选插件**，主程序聚焦纯本地车机音频管理（目录规范、批量重命名、ID3 整理）
 - [ ] 更换 **LGPL** 版 ffmpeg，解除 GPLv3 传染
 - [ ] 增补"保留原采样率"选项，避免 48kHz 素材被强制重采样
 - [ ] 单元测试覆盖度提升到 80%+
+- [ ] 增加**应用自身**的版本检查（需要一个可公网访问的版本清单接口）
+- [ ] 组件升级支持"仅本次跳过"与"回滚到上一个版本"
 
 ---
 
