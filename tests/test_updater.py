@@ -147,7 +147,7 @@ def test_external_finder_prefers_overlay_directory(tmp_path):
     (overlay / "__init__.py").write_text("__version__ = 'OVERLAY'\n", encoding="utf-8")
     (overlay / "version.py").write_text("__version__ = 'OVERLAY'\n", encoding="utf-8")
 
-    finder = updater._ExternalPackageFinder(str(root), "yt_dlp")
+    finder = updater._ExternalPackageFinder([str(root)], "yt_dlp")
     spec = finder.find_spec("yt_dlp")
     assert spec is not None
     assert Path(spec.origin).resolve() == (overlay / "__init__.py").resolve()
@@ -157,8 +157,22 @@ def test_external_finder_prefers_overlay_directory(tmp_path):
     assert Path(sub.origin).resolve() == (overlay / "version.py").resolve()
 
 
+def test_external_finder_supports_multiple_roots(tmp_path):
+    """便携目录优先于机器级目录（两个根都能找到时取靠前的）。"""
+    portable = tmp_path / "portable"
+    machine = tmp_path / "machine"
+    for root in (portable, machine):
+        (root / "yt_dlp").mkdir(parents=True)
+        (root / "yt_dlp" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+
+    finder = updater._ExternalPackageFinder([str(portable), str(machine)], "yt_dlp")
+    spec = finder.find_spec("yt_dlp")
+    assert spec is not None
+    assert Path(spec.origin).resolve() == (portable / "yt_dlp" / "__init__.py").resolve()
+
+
 def test_external_finder_ignores_other_packages(tmp_path):
-    finder = updater._ExternalPackageFinder(str(tmp_path), "yt_dlp")
+    finder = updater._ExternalPackageFinder([str(tmp_path)], "yt_dlp")
     assert finder.find_spec("requests") is None
     assert finder.find_spec("mutagen.id3") is None
 

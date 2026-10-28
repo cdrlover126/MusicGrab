@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 168 个单元测试的组织方式
+- 全部源码结构与 178 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 168 个单元测试
+├── tests/               # 178 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -847,11 +847,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-168 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定，以及组件升级的版本比对与安全解压：
+178 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定、组件目录布局，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-168 passed in 1.92s
+178 passed in 1.98s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1167,6 +1167,35 @@ ffmpeg/     外置 ffmpeg 可执行文件
 state.json  升级记录、已忽略版本、偏好设置
 ```
 
+> **单文件分发的三个结构性难题**，v1.8.0 一并解决了：
+>
+> 1. **组件跟不跟得上 exe？** 用户把 exe 拷到 U 盘、换台机器，外置组件就没了，
+>    得重新下载（内网机器还可能下不动）。现在组件**优先放在 exe 同目录的
+>    `MusicGrab_components\`**，跟 exe 一起搬家；exe 所在目录不可写时
+>    （`Program Files`）才退回机器级目录 `%LOCALAPPDATA%\MusicGrab\`。
+> 2. **状态和组件会不会走散？** 版本号记在 `state.json`（机器级）、组件可能在便携目录，
+>    一旦状态文件被清理工具删掉，"当前版本"就读不准了——于是又提示更新。
+>    现在**版本状态自描述**：yt-dlp 用包内的 `version.py`、ffmpeg 用同目录的
+>    `version.txt`，跟二进制躺在一起。`state.json` 只剩"偏好设置"的职责。
+> 3. **用户想回到内置版本怎么办？** 加了「输出设置 → 组件更新 → 恢复内置组件」，
+>    一键删掉外置副本。新版 exe 配旧组件时也能这么退。
+>
+> ```python
+> def component_roots() -> list[Path]:
+>     """组件目录候选（按优先级）。"""
+>     roots = []
+>     exe_dir = executable_dir()          # 打包后 exe 所在目录
+>     if exe_dir is not None:
+>         portable = exe_dir / "MusicGrab_components"
+>         if portable.is_dir():            # 已存在才纳入，不给用户凭空造目录
+>             roots.append(portable)
+>     roots.append(overlay_root())        # %LOCALAPPDATA%\MusicGrab
+>     return roots
+> ```
+>
+> import finder 也随之改成**同时搜索多个根目录**（便携优先），否则便携目录里的
+> yt-dlp 根本不会被加载——`sys.meta_path` 里的 finder 只认自己那几个根。
+
 另外提供了一个 CLI 子命令，方便脚本化与排障：
 
 ```powershell
@@ -1315,8 +1344,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`ca2bcc9579eaaedc278b542df571bb61973f00632c9cc7e6e94678b035041262`
-> SHA256（exe）：`d0629d33cb4184fa6b4d83c0d9f9eeb79187c7a6c0a7d6a272bf6c86b347565c`
+> SHA256（发布包）：`34d26eb8f8858a9c7874ae5bc6adb63142765b29a740cce92c6a3f0079f61f25`
+> SHA256（exe）：`e0a48ea0eaf92894b641fa52adcaccd91ec0eaa527c080460c848945c74dd2da`
 
 ### 快速上手
 

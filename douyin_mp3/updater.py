@@ -69,6 +69,9 @@ FFMPEG = "ffmpeg"
 
 COMPONENT_LABELS = {YTDLP: "yt-dlp（通用解析引擎）", FFMPEG: "ffmpeg（转码内核）"}
 
+#: 随 ffmpeg 二进制一起存放的版本标记文件名（自描述的版本记录）
+FFMPEG_VERSION_FILE = "version.txt"
+
 #: 只接受纯数字版本号（排除 .dev / .rc / b1 之类的预发布版本）
 _STABLE_VERSION_RE = re.compile(r"^\d+(\.\d+)*$")
 _VERSION_ASSIGN_RE = re.compile(r"""__version__\s*=\s*['"]([^'"]+)['"]""")
@@ -83,19 +86,82 @@ class UpdateError(RuntimeError):
 #: 覆盖层根目录（保留这个名字，测试里会 monkeypatch）
 overlay_root = _config_overlay_root
 
+#: 便携模式：exe 同目录下的组件目录名
+PORTABLE_DIR_NAME = "MusicGrab_components"
+
+
+def executable_dir() -> Path | None:
+    """打包后 exe 所在目录（源码运行时返回 None）。"""
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        return Path(sys.executable).resolve().parent
+    except OSError:
+        return None
+
+
+def _dir_writable(path: Path) -> bool:
+    """目录是否可写（建目录 + 写探针文件实测）。"""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".mg_write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def component_roots() -> list[Path]:
+    """组件目录候选（按优先级）。
+
+    1. **便携目录** —— exe 同目录下的 ``MusicGrab_components/``。已存在才纳入，
+       这样「exe 拷到哪，组件跟到哪」，用户把两者一起带走也不会丢更新状态。
+    2. **机器级目录** —— ``%LOCALAPPDATA%\\MusicGrab\\``，同一台机器上的多个
+       副本共用一份，不会重复下载。
+
+    两个目录都存在时，便携目录优先（它跟 exe 绑定，更符合"单文件应用"的直觉）。
+    """
+    roots: list[Path] = []
+    exe_dir = executable_dir()
+    if exe_dir is not None:
+        portable = exe_dir / PORTABLE_DIR_NAME
+        if portable.is_dir():
+            roots.append(portable)
+    roots.append(overlay_root())
+    return roots
+
+
+def install_root() -> Path:
+    """安装新组件的目标目录：便携目录优先（可写时），否则机器级目录。"""
+    exe_dir = executable_dir()
+    if exe_dir is not None:
+        portable = exe_dir / PORTABLE_DIR_NAME
+        if _dir_writable(portable):
+            return portable
+    return _ensure_root()
+
 
 def ytdlp_overlay_dir() -> Path:
-    """外置 yt-dlp 包目录。"""
-    return overlay_root() / "yt_dlp"
+    """外置 yt-dlp 包目录（取第一个已安装的候选）。"""
+    for root in component_roots():
+        candidate = root / "yt_dlp"
+        if (candidate / "__init__.py").exists():
+            return candidate
+    return component_roots()[-1] / "yt_dlp"
 
 
 def ffmpeg_overlay_dir() -> Path:
-    """外置 ffmpeg 目录。"""
-    return overlay_root() / "ffmpeg"
+    """外置 ffmpeg 目录（取第一个已安装的候选）。"""
+    for root in component_roots():
+        candidate = root / "ffmpeg"
+        if candidate.is_dir() and any(candidate.glob("*.exe")):
+            return candidate
+    return component_roots()[-1] / "ffmpeg"
 
 
 def state_path() -> Path:
-    """状态文件路径。"""
+    """状态文件路径（只存偏好：忽略版本、自动检查开关）。"""
     return overlay_root() / "state.json"
 
 
@@ -218,11 +284,37 @@ def installed_component_version(key: str) -> str:
     return str(load_state().get("installed", {}).get(key, "") or "")
 
 
+def ffmpeg_version_marker() -> str:
+    """读取随组件一起存放的版本标记（``ffmpeg/version.txt``）。
+
+    这是**自描述**的版本记录：它和 ffmpeg 二进制躺在同一个目录里，
+    exe 拷到别的机器、``state.json`` 被清理工具删掉，版本判定依然正确——
+    不会出现「明明升级过了又提示有更新」。
+    """
+    marker = ffmpeg_overlay_dir() / FFMPEG_VERSION_FILE
+    try:
+        return marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def write_ffmpeg_version_marker(version: str, directory: Path | None = None) -> None:
+    """把组件版本写进标记文件（与二进制放在一起）。"""
+    target_dir = directory if directory is not None else ffmpeg_overlay_dir()
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / FFMPEG_VERSION_FILE).write_text(
+            str(version or "").strip(), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
 def current_ytdlp_version() -> str:
     """当前实际生效的 yt-dlp 版本（含外置覆盖层）。
 
-    覆盖层里的 ``version.py`` 是最权威的；万一它缺失或损坏，退回升级时
-    记录的版本号，再不行才用打包内置的版本。
+    覆盖层里的 ``version.py`` 是最权威的（自描述）；万一它缺失或损坏，
+    退回升级时记录的版本号，再不行才用打包内置的版本。
     """
     overlay = ytdlp_overlay_dir()
     if (overlay / "__init__.py").exists():
@@ -238,14 +330,20 @@ def current_ytdlp_version() -> str:
 def current_imageio_ffmpeg_version() -> str:
     """当前实际生效的 ffmpeg 组件版本。
 
-    ffmpeg 二进制来自 ``imageio-ffmpeg`` 包，但升级时**只把二进制**装到覆盖层，
+    ffmpeg 二进制来自 ``imageio-ffmpeg`` 包，但升级时**只把二进制**装进覆盖层，
     并不替换这个包——包版本会永远停在「打包时内置」的那一个。
 
     若拿它去和 PyPI 比，就会出现用户反馈的那个问题：**每次启动都提示「有更新」，
-    明明已经升级过了**。因此覆盖层里有外置 ffmpeg 时，以**升级时记录的版本**为准；
-    没有记录时才退回打包内置的包版本。
+    明明已经升级过了**。因此按以下顺序取「当前版本」：
+
+    1. 组件目录里的版本标记 ``ffmpeg/version.txt``（自描述，跟着二进制走）
+    2. 升级时记录在 ``state.json`` 里的版本
+    3. 打包内置的 ``imageio-ffmpeg`` 包版本
     """
     if overlay_ffmpeg_exe() is not None:
+        marker = ffmpeg_version_marker()
+        if marker:
+            return marker
         recorded = installed_component_version(FFMPEG)
         if recorded:
             return recorded
@@ -660,8 +758,8 @@ def _replace_dir(new_dir: Path, target: Path) -> None:
 
 
 def install_ytdlp(wheel: Path) -> Path:
-    """把 wheel 里的 ``yt_dlp`` 包安装到覆盖层。返回安装目录。"""
-    root = _ensure_root()
+    """把 wheel 里的 ``yt_dlp`` 包安装到组件目录。返回安装目录。"""
+    root = install_root()
     staging = root / "yt_dlp.new"
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
@@ -673,14 +771,18 @@ def install_ytdlp(wheel: Path) -> Path:
     if not (staging / "__init__.py").exists():
         shutil.rmtree(staging, ignore_errors=True)
         raise UpdateError("下载的安装包中没有 yt_dlp 包，已放弃安装")
-    target = ytdlp_overlay_dir()
+    target = root / "yt_dlp"
     _replace_dir(staging, target)
     return target
 
 
-def install_ffmpeg(wheel: Path) -> Path:
-    """把 wheel 里的 ffmpeg 可执行文件安装到覆盖层。返回可执行文件路径。"""
-    root = _ensure_root()
+def install_ffmpeg(wheel: Path, *, version: str = "") -> Path:
+    """把 wheel 里的 ffmpeg 可执行文件安装到组件目录。返回可执行文件路径。
+
+    ``version`` 是提供这个二进制的包版本，会写进同目录的 ``version.txt``，
+    让「当前版本」始终能从组件自身读出（自描述，不依赖状态文件）。
+    """
+    root = install_root()
     staging = root / "ffmpeg.new"
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
@@ -716,12 +818,14 @@ def install_ffmpeg(wheel: Path) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
         raise UpdateError("新 ffmpeg 未返回版本信息，已放弃安装")
 
-    target_dir = ffmpeg_overlay_dir()
+    target_dir = root / "ffmpeg"
     target_dir.mkdir(parents=True, exist_ok=True)
     for old in target_dir.glob("ffmpeg*.exe"):
         old.unlink(missing_ok=True)
     final = target_dir / exe.name
     exe.replace(final)
+    if version:
+        write_ffmpeg_version_marker(version, target_dir)
     shutil.rmtree(staging, ignore_errors=True)
     return final
 
@@ -733,10 +837,12 @@ class _ExternalPackageFinder:
     PyInstaller 的 ``FrozenImporter`` 挂在 ``sys.meta_path`` 上，优先级高于
     ``sys.path``，所以单纯 ``sys.path.insert(0, ...)`` 并不保险；这里显式
     插一个 finder，把 ``yt_dlp`` 及其子模块的解析导向外置目录。
+
+    支持多个根目录（便携目录 + 机器级目录），按优先级依次查找。
     """
 
-    def __init__(self, root: str, package: str) -> None:
-        self.root = root
+    def __init__(self, roots: list[str], package: str) -> None:
+        self.roots = [r for r in roots if r]
         self.package = package
 
     def find_spec(self, fullname, path=None, target=None):  # noqa: ANN001
@@ -744,7 +850,7 @@ class _ExternalPackageFinder:
             return None
         from importlib.machinery import PathFinder
 
-        search = path if path is not None else [self.root]
+        search = path if path is not None else list(self.roots)
         spec = PathFinder.find_spec(fullname, search)
         if spec is None or not spec.origin:
             return None
@@ -752,10 +858,15 @@ class _ExternalPackageFinder:
             origin = Path(spec.origin).resolve()
         except OSError:
             return None
-        root = Path(self.root).resolve()
-        if root != origin and root not in origin.parents:
-            return None
-        return spec
+        # 二次确认：解析结果必须真的落在某个外置目录里
+        for root in self.roots:
+            try:
+                base = Path(root).resolve()
+            except OSError:
+                continue
+            if origin == base or base in origin.parents:
+                return spec
+        return None
 
 
 def _install_ytdlp_finder() -> bool:
@@ -767,11 +878,12 @@ def _install_ytdlp_finder() -> bool:
         # 已经导入过（可能是内置版本），本次会话无法再切换
         return False
     # 搜索根目录必须是「包含 yt_dlp/ 的那一层」，否则会去找 yt_dlp/yt_dlp/
-    root = str(overlay_root())
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    roots = [str(root) for root in component_roots()]
+    for root in reversed(roots):
+        if root not in sys.path:
+            sys.path.insert(0, root)
     if not any(isinstance(f, _ExternalPackageFinder) for f in sys.meta_path):
-        sys.meta_path.insert(0, _ExternalPackageFinder(root, "yt_dlp"))
+        sys.meta_path.insert(0, _ExternalPackageFinder(roots, "yt_dlp"))
     return True
 
 
@@ -782,6 +894,24 @@ def apply_ffmpeg_overlay() -> bool:
         return False
     os.environ["IMAGEIO_FFMPEG_EXE"] = str(exe)
     return True
+
+
+def _seed_ffmpeg_marker() -> None:
+    """给早期安装（没有版本标记文件）补一个标记。
+
+    老版本升级时只装了二进制、没写 ``version.txt``，这里用状态里记录的版本
+    补齐，让"当前版本"从此自描述——即使 ``state.json`` 被清理也不会重复提示更新。
+    """
+    try:
+        if overlay_ffmpeg_exe() is None:
+            return
+        if ffmpeg_version_marker():
+            return
+        recorded = installed_component_version(FFMPEG)
+        if recorded:
+            write_ffmpeg_version_marker(recorded)
+    except Exception:
+        pass
 
 
 def apply_overlay() -> dict:
@@ -804,6 +934,10 @@ def apply_overlay() -> dict:
         result["ffmpeg"] = False
     try:
         save_ca_bundle(overlay_root())
+    except Exception:
+        pass
+    try:
+        _seed_ffmpeg_marker()
     except Exception:
         pass
     return result
@@ -841,7 +975,7 @@ def upgrade_component(
         install_ytdlp(wheel)
         result = f"yt-dlp 已更新到 {remote.version}"
     else:
-        exe = install_ffmpeg(wheel)
+        exe = install_ffmpeg(wheel, version=remote.version)
         apply_ffmpeg_overlay()
         result = f"ffmpeg 已更新到 {current_ffmpeg_version() or remote.version}（{exe.name}）"
 
@@ -851,6 +985,42 @@ def upgrade_component(
     state.setdefault("ignored", {}).pop(status.key, None)
     save_state(state)
     return result
+
+
+# ── 组件重置 ────────────────────────────────────────────────
+def component_locations() -> list[Path]:
+    """当前可能存放外置组件的目录（便携 + 机器级）。"""
+    roots: list[Path] = []
+    exe_dir = executable_dir()
+    if exe_dir is not None:
+        roots.append(exe_dir / PORTABLE_DIR_NAME)
+    roots.append(overlay_root())
+    return roots
+
+
+def reset_components() -> list[str]:
+    """清除外置组件，恢复到打包内置的版本。
+
+    返回被清理的目录名列表。用于「换了新版 exe 后想回到内置组件」、
+    「外置组件装坏了」这类场景。
+    """
+    removed: list[str] = []
+    for root in component_locations():
+        for name in ("yt_dlp", "ffmpeg"):
+            target = root / name
+            if not target.exists():
+                continue
+            try:
+                shutil.rmtree(target, ignore_errors=True)
+            except OSError:
+                continue
+            removed.append(str(target))
+    # 状态里的「已安装版本」也要清掉，否则会以为组件还是新版
+    state = load_state()
+    if state.get("installed"):
+        state["installed"] = {}
+        save_state(state)
+    return removed
 
 
 def ignore_version(key: str, version: str) -> None:

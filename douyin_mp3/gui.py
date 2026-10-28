@@ -912,12 +912,45 @@ def run_gui() -> int:
             self.auto_check_box.toggled.connect(self._on_auto_check_toggled)
             h.addWidget(self.auto_check_box)
             h.addStretch(1)
+            self.reset_components_btn = QPushButton("恢复内置组件")
+            self.reset_components_btn.setProperty("secondary", True)
+            self.reset_components_btn.setFixedWidth(104)
+            self.reset_components_btn.setToolTip(
+                "删除已下载的外置 yt-dlp / ffmpeg，回到程序内置的版本。\n"
+                "换了新版程序、或外置组件装坏时可以用。"
+            )
+            self.reset_components_btn.clicked.connect(self.reset_components)
+            h.addWidget(self.reset_components_btn, 0)
             self.check_now_btn = QPushButton("立即检查")
             self.check_now_btn.setProperty("secondary", True)
             self.check_now_btn.setFixedWidth(88)
             self.check_now_btn.clicked.connect(lambda: self.start_update_check(manual=True))
             h.addWidget(self.check_now_btn, 0)
             return w
+
+        def reset_components(self) -> None:
+            """清除外置组件，恢复打包内置的版本。"""
+            confirm = QMessageBox.question(
+                self,
+                APP_NAME,
+                "确定要删除已下载的外置 yt-dlp / ffmpeg 吗？\n\n"
+                "删除后程序会回到内置版本（功能不受影响），"
+                "下次自检会重新提示升级。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if confirm != QMessageBox.Yes:
+                return
+            removed = updater.reset_components()
+            self.append_log(
+                "已清除外置组件：" + ("、".join(removed) if removed else "（没有可清除的）")
+            )
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                "已恢复为程序内置的 yt-dlp / ffmpeg。"
+                + ("\n\n重启程序后完全生效。" if removed else ""),
+            )
 
         def pick_dir(self) -> None:
             chosen = QFileDialog.getExistingDirectory(self, "选择输出目录", self.dir_edit.text())
