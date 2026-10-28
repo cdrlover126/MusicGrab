@@ -2,10 +2,11 @@
 
 批量粘贴视频或音乐分享链接，自动识别平台并提取其中的音轨，转换为**车机系统可直接播放**的 MP3。
 
-> 当前版本 **v1.7.0** · Windows x64 · 免安装单文件（约 102 MB）· [发布说明](docs/releases/v1.7.0.md)
+> 当前版本 **v1.8.0** · Windows x64 · 免安装单文件（约 102 MB）· [发布说明](docs/releases/v1.8.0.md)
 
-- **车机友好**：MP3、ID3v2.3 标签（歌名/歌手/专辑/来源注释）、44.1kHz 双声道、码率可调
-- **批量处理**：一次粘贴多条，自动识别平台并排队转换
+- **车机友好**：MP3、ID3v2.3 标签（歌名/歌手/专辑/来源注释）、44.1kHz 双声道、V0 可变码率或 96–320 kbps 固定码率
+- **格式齐全**：MP3 / M4A / Opus / FLAC / WAV，外加 **BEST（源格式不转码）**；可把封面图嵌入音频文件
+- **批量处理**：一次粘贴多条，自动识别平台并排队转换；**单条右键重试**、失败项一键重试
 - **双引擎**：国内主流平台优先用内置解析器（更省资源、更适配），其余走 yt-dlp 通用引擎（覆盖范围极广）
 - **不挑网络**：智能路由——国内平台直连、境外站点自动走代理，代理不通会明确提示而非误报"风控"
 - **能自我更新**：内置的 yt-dlp / ffmpeg 虽被冻结在 exe 里，但启动时会自检版本并提示一键升级（见 [4.4](#44-组件自检与在线升级)）
@@ -31,9 +32,10 @@
 - **本地文件输入**：除网络链接外，还可直接导入本地视频/音频（mp4 / mkv / mov / avi / flv / wmv / webm / ts / rmvb / mpg 等 30+ 常见容器），直接提取音轨
 - **解析引擎切换**：`auto`（默认，智能选择）/ `douyin`（强制内置解析器）/ `generic`（强制 yt-dlp）
 - **音频来源（抖音专用）**：`auto` / `video`（视频音轨）/ `music`（纯配乐）
-- **音质调节**：预设 128/192/256/320 kbps（**默认 320 极清**），也可自定义 32～320 kbps
-- **输出格式可选**：MP3 / WAV / FLAC / M4A / AAC / OGG / Opus / WMA，MP3 写 ID3v2.3（车机兼容最好），其余写各容器原生标签
-- **车机兼容**：44.1kHz 双声道、文件名自动编号、ID3v2.3 标签（歌名/歌手/专辑/来源注释）
+- **音质调节**：`V0`（LAME 最佳可变码率，推荐）/ 320 / 256 / 192 / 128 / 96 kbps 固定码率，也可自定义 32～320 kbps；无损格式与 BEST 自动忽略码率
+- **输出格式可选**：MP3 / M4A / Opus / FLAC / WAV / **BEST（源格式不转码）**。MP3 写 ID3v2.3（车机兼容最好），其余写各容器原生标签
+- **封面嵌入**：自动抓取平台封面（抖音/快手/酷狗/yt-dlp 站点）并写入音频文件；本地视频则抽第一帧作封面。WAV/Opus 不支持封面，自动跳过
+- **任务结果面板**：逐条列出成功/失败/跳过，支持右键打开文件、打开文件夹、复制来源、**单条重试**与**一键重试全部失败项**
 - **登录站点支持**：`--cookies`（Netscape 格式）或 `--cookies-from-browser`（edge/chrome/firefox/chromium/brave/opera）
 - **智能路由**：默认「智能」模式——**国内平台直连**（CDN 全球可达），**境外站点自动走代理**（未填代理时先探测直连可达性，不通则提示配置代理）。另有「全部直连」「全部走代理」两种强制模式。启动前会**预检代理连通性**，代理不通会立即给出明确提示（不再误报为“风控”）
 - **组件自检与在线升级**：内置的 yt-dlp / ffmpeg 是打包时冻结的副本，**不会自动更新**。程序启动时联网比对官方最新版本，发现新版本会在窗口顶部弹出提示条，可一键下载官方安装包就地升级（见 [4.4](#44-组件自检与在线升级)）
@@ -96,6 +98,7 @@ python -m douyin_mp3 convert "https://v.douyin.com/xxx/" -o "D:\Music"
 - **更新横幅**：启动自检发现 yt-dlp / ffmpeg 有新版本时，窗口顶部出现黄色横幅（见 [4.4](#44-组件自检与在线升级)）
 - **输出设置**（选项页）：音质、输出格式、音频来源、解析引擎、条数间隔、代理、Cookies、浏览器 Cookies、输出目录、**组件更新**
 - **详情日志**（选项页）：查看解析、下载、转码的完整过程，便于排查问题
+- **任务结果**（选项页）：表格展示每条任务的状态/标题/歌手/时长/大小/输出文件；**右键**可打开文件、打开所在文件夹、复制来源地址、重试此任务，顶部按钮可**一键重试全部失败项**
 - **进度显示**：仅显示百分比进度，转换完成后会弹窗提示成功/失败数量
 
 ### 4.2 命令行
@@ -120,8 +123,11 @@ douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xx
 # 本地视频文件直接提取音轨（可与网络链接混合）
 douyin-mp3 convert "D:\视频\MV.mp4" "D:\视频\翻唱.mkv" -q 320 -f flac
 
-# 指定输出格式（mp3 / wav / flac / m4a / aac / ogg / opus / wma）
-douyin-mp3 convert "https://v.douyin.com/aaa/" --format flac
+# 最佳 VBR（MP3 专用）+ 嵌入封面
+douyin-mp3 convert "https://v.douyin.com/aaa/" -q v0 -f mp3
+
+# BEST：直接复制源音轨，不转码、零损失（输出扩展名随源而定）
+douyin-mp3 convert "https://www.bilibili.com/video/BV1xx411c7mD" -f best
 
 # 检查 yt-dlp / ffmpeg 组件是否有新版本（打包后内置组件不会自动更新）
 douyin-mp3 check-update
@@ -144,8 +150,8 @@ douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效�
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `urls`（位置参数） | 必填 | 一条或多条分享链接/口令/本地文件路径，支持混合粘贴 |
-| `-q, --quality` | `320` | `128`/`192`/`256`/`320` 或 `32-320` 任意整数 |
-| `-f, --format` | `mp3` | 输出格式：`mp3`/`wav`/`flac`/`m4a`/`aac`/`ogg`/`opus`/`wma` |
+| `-q, --quality` | `320` | `v0`（最佳 VBR）/ `96`/`128`/`192`/`256`/`320` CBR，或 `32-320` 任意整数；无损格式与 BEST 自动忽略 |
+| `-f, --format` | `mp3` | 输出格式：`mp3`/`m4a`/`opus`/`flac`/`wav`/`best`（源格式不转码） |
 | `-s, --source` | `auto` | `auto`/`video`/`music`（仅抖音内置解析器生效） |
 | `--engine` | `auto` | `auto`（智能选择）/`douyin`（强制内置：抖音、快手）/`generic`（强制 yt-dlp） |
 | `-o, --output` | `~/Music/MusicGrab` | 输出目录（会自动创建） |
@@ -168,18 +174,39 @@ douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效�
 
 **输出格式**（GUI 中在「输出设置 → 输出格式」选择，或 CLI 用 `-f/--format`）
 
-| 格式 | 编码 | 特点 | 适用场景 |
+| 格式 | 编码 | 音质设置 | 特点 / 适用场景 |
 |---|---|---|---|
-| **MP3** | libmp3lame | 有损，ID3v2.3 标签 | **车机首选**，兼容性最好 |
-| WAV | pcm_s16le | 无损，未压缩 | 需要原始波形，体积大 |
-| FLAC | flac | 无损压缩 | 无损收藏，体积小于 WAV |
-| M4A | aac | 有损，体积小 | Apple 生态 / iOS 设备 |
-| AAC | aac (ADTS) | 有损 | 流媒体场景 |
-| OGG | libvorbis | 有损 | 开源播放器 |
-| Opus | libopus | 有损，高压缩比 | 语音/低码率 |
-| WMA | wmv2 | 有损 | 老车机、旧 Windows |
+| **MP3** | libmp3lame | V0 或 CBR | 有损，ID3v2.3 标签；**车机首选**，兼容性最好 |
+| M4A | aac | CBR | 有损，体积小；Apple 生态 / iOS 设备 |
+| Opus | libopus | CBR | 有损，高压缩比；语音 / 低码率（固定 48kHz） |
+| FLAC | flac | 忽略 | 无损压缩；无损收藏，体积小于 WAV |
+| WAV | pcm_s16le | 忽略 | 无损、未压缩；需要原始波形，体积大 |
+| **BEST** | copy | 忽略 | **不转码，直接复制源音轨**；零损失、速度最快 |
 
-> 除 MP3 使用 ID3v2.3 外，其余格式写入各容器原生标签（FLAC/OGG 写 Vorbis Comment、M4A 写 MP4 Atom、WMA 写 ASF、WAV 写 LIST-INFO）。Opus 固定使用 48kHz（格式限制），其余统一 44.1kHz 双声道。
+**音质选项**（GUI「输出设置 → 音质」，或 CLI `-q/--quality`）
+
+| 选项 | 行为 |
+|---|---|
+| `V0`（推荐） | LAME 最佳可变码率，同体积下质量最好；**仅 MP3 生效**，其他有损格式自动按 320k 处理 |
+| `320` / `256` / `192` / `128` / `96` | 固定码率（CBR）；**默认 320** |
+| 自定义 32–320 | 在 GUI 右侧输入框填写，或 CLI 直接传数字 |
+| 无损 / BEST | 码率设置自动忽略（FLAC/WAV 天然无损，BEST 不重编码） |
+
+> 除 MP3 使用 ID3v2.3 外，其余格式写入各容器原生标签（FLAC 写 Vorbis Comment、M4A 写 MP4 Atom、WAV 写 LIST-INFO）。Opus 固定使用 48kHz（格式限制），其余统一 44.1kHz 双声道。
+
+**封面嵌入**：抖音 / 快手 / 酷狗 / yt-dlp 站点会尝试下载平台封面并写入音频；本地视频则抽第 1 秒的一帧作为封面。MP3 / M4A / FLAC 支持封面，WAV / Opus 容器没有标准封面位置，会自动跳过（不会导致转换失败）。封面下载失败也不影响音频输出。
+
+**BEST 模式**会先探测源音频编码，再决定输出容器，避免"容器装不下该编码"导致失败：
+
+| 源音频编码 | 输出扩展名 |
+|---|---|
+| mp3 | `.mp3` |
+| aac / alac | `.m4a` |
+| opus | `.opus` |
+| vorbis | `.ogg` |
+| flac | `.flac` |
+| pcm_* | `.wav` |
+| 其他未知 | 沿用源文件扩展名；无扩展名时用 `.mka` |
 
 **本地文件**：程序会自动识别输入行中的本地路径，支持 30+ 常见视频容器（mp4 / mkv / mov / avi / flv / f4v / wmv / webm / ts / m2ts / 3gp / rmvb / rm / mpg / mpeg / vob / asf / ogv / divx …）及常见音频格式（mp3 / wav / flac / m4a / ogg / opus / wma / ape / aiff…）。本地文件**不需要解析与下载**，直接用 ffmpeg 提取音轨，标题取自文件名。
 
@@ -279,9 +306,12 @@ douyin-mp3 check-update --upgrade    # 直接下载安装（重启后生效）
 | **文件名乱码/特殊字符** | 原标题含特殊符号 | 程序已做文件名清洗，会自动替换非法字符并用编号避免重名 |
 | **本地文件没被识别** | 扩展名不在支持列表 | 确认是常见视频/音频格式（mp4/mkv/mov/avi/flv/wmv/webm/ts/rmvb/mpg… 或 mp3/wav/flac/m4a/ogg/opus/wma）；路径需为完整路径 |
 | **Opus 转换失败** | Opus 编码器要求 48kHz | 程序已自动对 Opus 改用 48kHz；若仍失败请用 FLAC 或 MP3 |
+| **BEST 输出的不是 .mp3** | BEST = 源格式不转码，扩展名由源音频编码决定 | 这是预期行为（如 B 站 AAC 音轨输出 `.m4a`）；需要统一 MP3 请选 `mp3` 格式 |
+| **封面没有嵌入** | WAV / Opus 容器不支持封面，或平台未提供封面 / 封面下载失败 | 改用 MP3 / M4A / FLAC；封面缺失不会影响音频本身 |
+| **个别任务失败想重跑** | 网络抖动、临时风控或 cookies 失效 | 切到「任务结果」页，右键该行选「重试此任务」；或点顶部「重试全部失败项」，编号与文件名保持不变 |
 | **车机不认某个格式** | 车机解码能力有限 | 老车机建议用 MP3（ID3v2.3），部分车机仅支持 MP3/WAV |
 
-> 提示：工具会在转换完成后生成 `conversion_report_*.csv`，记录每条链接的状态、文件名、时长、码率等，便于复盘和排查。
+> 提示：工具会在转换完成后生成 `conversion_report_*.csv`，记录每条链接的状态、文件名、时长、大小等，便于复盘和排查。
 
 ## 6. 生成应用（打包成 EXE）
 
@@ -309,7 +339,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ## 7. 测试、文档与发布
 
 ```powershell
-# 运行单元测试（94 个）
+# 运行单元测试（103 个）
 pytest tests -q
 ```
 
@@ -324,7 +354,8 @@ python packaging\check_bundled.py            # 检查 exe 内嵌的组件与版�
 
 相关文档：
 - [docs/SUPPORTED_SITES.md](docs/SUPPORTED_SITES.md) — 平台支持清单与实测明细
-- [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md) — 版本发布说明（含变更清单与已知限制）
+- [docs/releases/v1.8.0.md](docs/releases/v1.8.0.md) — 当前版本发布说明（格式/音质体系、封面、任务重试）
+- [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md) — 上一版本（组件自检与在线升级）
 - [docs/blog/CSDN-技术博文.md](docs/blog/CSDN-技术博文.md) — 完整开发复盘长文（架构 / 踩坑 / 合规）
 - [docs/STORE_CHECKLIST.md](docs/STORE_CHECKLIST.md) — Microsoft Store 发布检查清单
 - [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md) — 隐私政策模板

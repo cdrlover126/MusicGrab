@@ -17,6 +17,7 @@ DOCS = [
     ROOT / "docs" / "blog" / "CSDN-技术博文.md",
     ROOT / "docs" / "blog" / "CSDN-发布信息.md",
     ROOT / "docs" / "releases" / "v1.7.0.md",
+    ROOT / "docs" / "releases" / "v1.8.0.md",
     ROOT / "docs" / "SUPPORTED_SITES.md",
     ROOT / "docs" / "PRIVACY_POLICY.md",
     ROOT / "docs" / "STORE_CHECKLIST.md",

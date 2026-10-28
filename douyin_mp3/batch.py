@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import csv
+import subprocess
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 import requests
 
@@ -14,6 +16,7 @@ from .config import (
     AUDIO_EXTENSIONS,
     VIDEO_EXTENSIONS,
     ConvertOptions,
+    describe_quality,
     resolve_output_format,
     temp_dir,
 )
@@ -23,10 +26,11 @@ from .converter import (
     convert_to_audio,
     convert_to_mp3,
     probe_duration_seconds,
+    resolve_extension,
     sanitize_filename,
 )
 from .cookies import CookieError
-from .downloader import DownloadError, download_with_retry
+from .downloader import DownloadError, download_file, download_with_retry
 from .generic import GenericParseError, download_generic_audio
 from .kuaishou import KuaishouClient, KuaishouParseError
 from .kugou import KugouClient, KugouParseError
@@ -41,6 +45,7 @@ from .proxy import (
     ROUTE_MODE_LABELS,
     ProxyUnreachableError,
     Route,
+    build_session,
     check_proxy_reachable,
     describe_effective_proxy,
     is_proxy_error,
@@ -144,16 +149,103 @@ class BatchProcessor:
                 files.append(path)
         return files
 
-    def _unique_path(self, directory: Path, base: str, template_index: int, title: str) -> Path:
-        name = self.options.filename_template.format(index=template_index, title=sanitize_filename(title))
+    def _base_path(
+        self,
+        directory: Path,
+        template_index: int,
+        title: str,
+        ext: str | None = None,
+    ) -> Path:
+        """按命名模板算出「首选」输出路径（不考虑重名）。"""
+        name = self.options.filename_template.format(
+            index=template_index, title=sanitize_filename(title)
+        )
         name = sanitize_filename(name.replace("/", "_"))
-        ext = resolve_output_format(self.options.output_format).ext
-        candidate = directory / f"{name}.{ext}"
+        if ext is None:
+            ext = resolve_output_format(self.options.output_format).ext
+        return directory / f"{name}.{ext}"
+
+    def _unique_path(
+        self,
+        directory: Path,
+        template_index: int,
+        title: str,
+        ext: str | None = None,
+    ) -> Path:
+        candidate = self._base_path(directory, template_index, title, ext)
         counter = 2
         while candidate.exists():
-            candidate = directory / f"{name} ({counter}).{ext}"
+            candidate = candidate.with_name(f"{candidate.stem} ({counter}){candidate.suffix}")
             counter += 1
         return candidate
+
+    def _output_extension(self, source: Path | None = None) -> str:
+        """决定输出扩展名。
+
+        BEST（不转码）模式下扩展名取决于源音频编码，必须先探测才知道。
+        """
+        return resolve_extension(
+            self.options.output_format,
+            source,
+            find_ffmpeg_cached(self.ffmpeg_path) or None,
+        )
+
+    def _fetch_cover(
+        self,
+        cover_url: str,
+        work_dir: Path,
+        proxy: str | None = None,
+    ) -> Path | None:
+        """下载封面图；失败返回 None（封面缺失不应阻断转码）。"""
+        if not cover_url:
+            return None
+        ext = ".png" if ".png" in cover_url.lower() else ".jpg"
+        dest = work_dir / f"cover{ext}"
+        parts = urlsplit(cover_url)
+        headers = {"Referer": f"{parts.scheme}://{parts.netloc}/"} if parts.netloc else None
+        try:
+            session = build_session(proxy, trust_env=self.options.trust_env)
+            download_file(cover_url, dest, session=session, timeout=30, headers=headers)
+        except (DownloadError, OSError, requests.RequestException):
+            dest.unlink(missing_ok=True)
+            return None
+        if not dest.exists() or dest.stat().st_size < 512:
+            dest.unlink(missing_ok=True)
+            return None
+        return dest
+
+    def _frame_cover(self, source: Path, work_dir: Path) -> Path | None:
+        """从本地视频抽一帧当封面（离线可用）。"""
+        ffmpeg = find_ffmpeg_cached(self.ffmpeg_path)
+        if not ffmpeg:
+            return None
+        dest = work_dir / "frame.jpg"
+        for seek in ("1", "0"):
+            dest.unlink(missing_ok=True)
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                seek,
+                "-i",
+                str(source),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(dest),
+            ]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, timeout=60)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 512:
+                return dest
+        dest.unlink(missing_ok=True)
+        return None
 
     def _pick_source_url(self, info: VideoInfo) -> tuple[str, list[str]]:
         mode = self.options.audio_source
@@ -168,7 +260,7 @@ class BatchProcessor:
             return info.music_url, []
         raise DownloadError("该视频没有可用的播放地址")
 
-    def run(self, lines: list[str]) -> BatchSummary:
+    def run(self, lines: list[str], indices: list[int] | None = None) -> BatchSummary:
         links = self.collect_links(lines)
         local_files = self.collect_local_files(lines)
         total_items = len(links) + len(local_files)
@@ -213,7 +305,7 @@ class BatchProcessor:
         self._log(
             f"共 {len(links)} 条链接"
             + (f" + {len(local_files)} 个本地文件" if local_files else "")
-            + f"，输出目录: {options.output_dir}，质量: {options.bitrate}，格式: {fmt_label}"
+            + f"，输出目录: {options.output_dir}，音质: {describe_quality(options.quality)}，格式: {fmt_label}"
         )
         report_rows: list[dict] = []
 
@@ -221,15 +313,20 @@ class BatchProcessor:
         tasks.extend(("file", str(path)) for path in local_files)
 
         try:
-            for index, (kind, target) in enumerate(tasks, start=1):
+            for position, (kind, target) in enumerate(tasks):
+                index = indices[position] if indices and position < len(indices) else position + 1
                 if self._cancel.is_set():
                     self._log("已取消剩余任务")
                     break
-                self.on_item_start(index, total_items, target)
+                self.on_item_start(position + 1, total_items, target)
                 if kind == "file":
-                    result = self._process_local_file(work_dir, index, Path(target), total_items)
+                    result = self._process_local_file(
+                        work_dir, index, Path(target), total_items, position + 1
+                    )
                 else:
-                    result = self._process_one(client, work_dir, index, target, total_items)
+                    result = self._process_one(
+                        client, work_dir, index, target, total_items, position + 1
+                    )
                 summary.results.append(result)
                 if result.status == "ok":
                     summary.succeeded += 1
@@ -261,19 +358,27 @@ class BatchProcessor:
         return summary
 
     def _process_local_file(
-        self, work_dir: Path, index: int, src: Path, total: int
+        self,
+        work_dir: Path,
+        index: int,
+        src: Path,
+        total: int,
+        display: int | None = None,
     ) -> TaskResult:
         """处理本地视频/音频文件：直接用 ffmpeg 提取音轨，无需解析与下载。"""
         options = self.options
+        display = display or index
         try:
             if not src.is_file():
                 return TaskResult(index, str(src), "failed", f"文件不存在: {src}")
 
             title = sanitize_filename(src.stem)
-            self._log(f"[{index}/{total}] 本地文件《{title}》({src.suffix.lower()})")
+            self._log(f"[{display}/{total}] 本地文件《{title}》({src.suffix.lower()})")
 
             duration = probe_duration_seconds(find_ffmpeg_cached(self.ffmpeg_path) or "", src)
-            out_path = self._unique_path(options.output_dir, "", index, title)
+            ext = self._output_extension(src)
+            out_path = self._unique_path(options.output_dir, index, title, ext)
+            cover = self._frame_cover(src, work_dir)
             convert_to_audio(
                 src,
                 out_path,
@@ -287,14 +392,15 @@ class BatchProcessor:
                     comment=str(src),
                     track=index,
                 ),
+                cover=cover,
             )
             size = out_path.stat().st_size
-            self._log(f"[{index}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
+            self._log(f"[{display}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
             return TaskResult(
                 index, str(src), "ok", "成功", str(out_path), title, "本地文件", duration, size
             )
         except (ConverterError, OSError, ValueError) as exc:
-            self._log(f"[{index}/{total}] 失败: {exc}")
+            self._log(f"[{display}/{total}] 失败: {exc}")
             return TaskResult(index, str(src), "failed", str(exc))
 
     def _apply_route(self, client: DouyinClient, route: Route) -> None:
@@ -308,9 +414,16 @@ class BatchProcessor:
             client.session.proxies.clear()
 
     def _process_one(
-        self, client: DouyinClient, work_dir: Path, index: int, url: str, total: int
+        self,
+        client: DouyinClient,
+        work_dir: Path,
+        index: int,
+        url: str,
+        total: int,
+        display: int | None = None,
     ) -> TaskResult:
         options = self.options
+        display = display or index
         tmp_src = work_dir / f"{index:03d}.bin"
         platform = classify_platform(url)
         use_builtin = options.use_builtin_parser
@@ -320,20 +433,21 @@ class BatchProcessor:
         # 逐条决定直连 / 走代理
         route = resolve_route(url, options.route_mode, options.proxy)
         if route.error:
-            self._log(f"[{index}/{total}] {route.error}")
+            self._log(f"[{display}/{total}] {route.error}")
             return TaskResult(index, url, "failed", route.error)
-        self._log(f"[{index}/{total}] 路由: {route.reason}")
+        self._log(f"[{display}/{total}] 路由: {route.reason}")
         task_proxy = normalize_proxy(options.proxy) if route.use_proxy else None
 
         try:
             def _cb(done: int, done_total: int) -> None:
                 if done_total:
                     pct = done * 100 // done_total
-                    self._log(f"[{index}/{total}] 下载中 {pct}%")
+                    self._log(f"[{display}/{total}] 下载中 {pct}%")
 
             title = artist = comment = ""
             duration = 0.0
             album = "抖音音乐"
+            cover_url = ""
 
             if platform == "douyin":
                 self._apply_route(client, route)
@@ -347,18 +461,18 @@ class BatchProcessor:
                         last_error = exc
                         if is_proxy_error(exc):
                             msg = proxy_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
                         if is_timeout_error(exc):
                             msg = timeout_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
-                        self._log(f"[{index}/{total}] 解析失败(第{attempt}次): {exc}")
+                        self._log(f"[{display}/{total}] 解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
                     return TaskResult(index, url, "failed", f"解析失败: {last_error}")
 
-                self._log(f"[{index}/{total}] 《{info.display_title}》 - {info.artist}")
+                self._log(f"[{display}/{total}] 《{info.display_title}》 - {info.artist}")
                 primary, fallbacks = self._pick_source_url(info)
                 download_with_retry(
                     primary,
@@ -372,6 +486,7 @@ class BatchProcessor:
                 duration = info.duration_ms / 1000 or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
+                cover_url = info.cover_url
             elif platform == "kuaishou":
                 kuaishou_client = self._kuaishou_client()
                 self._apply_route(kuaishou_client, route)
@@ -385,18 +500,18 @@ class BatchProcessor:
                         last_error = exc
                         if is_proxy_error(exc):
                             msg = proxy_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
                         if is_timeout_error(exc):
                             msg = timeout_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
-                        self._log(f"[{index}/{total}] 快手解析失败(第{attempt}次): {exc}")
+                        self._log(f"[{display}/{total}] 快手解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
                     return TaskResult(index, url, "failed", f"快手解析失败: {last_error}")
 
-                self._log(f"[{index}/{total}] 《{info.display_title}》 - {info.artist}")
+                self._log(f"[{display}/{total}] 《{info.display_title}》 - {info.artist}")
                 download_with_retry(
                     info.video_urls[0],
                     tmp_src,
@@ -409,6 +524,7 @@ class BatchProcessor:
                 duration = info.duration_ms / 1000 or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
+                cover_url = info.cover_url
             elif platform == "kugou":
                 kugou_client = self._kugou_client()
                 self._apply_route(kugou_client, route)
@@ -422,18 +538,18 @@ class BatchProcessor:
                         last_error = exc
                         if is_proxy_error(exc):
                             msg = proxy_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
                         if is_timeout_error(exc):
                             msg = timeout_error_message(exc, options.proxy)
-                            self._log(f"[{index}/{total}] {msg}")
+                            self._log(f"[{display}/{total}] {msg}")
                             return TaskResult(index, url, "failed", msg)
-                        self._log(f"[{index}/{total}] 酷狗解析失败(第{attempt}次): {exc}")
+                        self._log(f"[{display}/{total}] 酷狗解析失败(第{attempt}次): {exc}")
                         time.sleep(2 * attempt)
                 if info is None:
                     return TaskResult(index, url, "failed", f"酷狗解析失败: {last_error}")
 
-                self._log(f"[{index}/{total}] 《{info.title}》 - {info.artist}")
+                self._log(f"[{display}/{total}] 《{info.title}》 - {info.artist}")
                 download_with_retry(
                     info.play_url,
                     tmp_src,
@@ -447,11 +563,12 @@ class BatchProcessor:
                 duration = info.duration_ms / 1000 or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
+                cover_url = info.cover_url
             else:
                 from .parser import PLATFORM_LABELS
 
                 label = PLATFORM_LABELS.get(platform, platform)
-                self._log(f"[{index}/{total}] 识别为{label}链接，使用通用引擎(yt-dlp)")
+                self._log(f"[{display}/{total}] 识别为{label}链接，使用通用引擎(yt-dlp)")
                 meta = download_generic_audio(
                     url,
                     tmp_src,
@@ -466,16 +583,19 @@ class BatchProcessor:
                 duration = meta.duration or probe_duration_seconds(
                     find_ffmpeg_cached(self.ffmpeg_path), tmp_src
                 )
-                self._log(f"[{index}/{total}] 《{title}》 - {artist}")
+                cover_url = meta.thumbnail
+                self._log(f"[{display}/{total}] 《{title}》 - {artist}")
 
+            ext = self._output_extension(tmp_src)
             if options.skip_existing:
-                preview = self._unique_path(options.output_dir, "", index, title)
+                preview = self._base_path(options.output_dir, index, title, ext)
                 if preview.exists():
                     return TaskResult(
                         index, url, "skipped", "已存在，跳过", str(preview), title, artist
                     )
 
-            out_path = self._unique_path(options.output_dir, "", index, title)
+            out_path = self._unique_path(options.output_dir, index, title, ext)
+            cover = self._fetch_cover(cover_url, work_dir, task_proxy)
             convert_to_audio(
                 tmp_src,
                 out_path,
@@ -489,9 +609,13 @@ class BatchProcessor:
                     comment=comment,
                     track=index,
                 ),
+                cover=cover,
             )
             size = out_path.stat().st_size
-            self._log(f"[{index}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
+            note = "，含封面" if cover else ""
+            self._log(
+                f"[{display}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB){note}"
+            )
             return TaskResult(index, url, "ok", "成功", str(out_path), title, artist, duration, size)
         except (
             DownloadError,
@@ -503,7 +627,7 @@ class BatchProcessor:
             OSError,
             ValueError,
         ) as exc:
-            self._log(f"[{index}/{total}] 失败: {exc}")
+            self._log(f"[{display}/{total}] 失败: {exc}")
             return TaskResult(index, url, "failed", str(exc))
         finally:
             tmp_src.unlink(missing_ok=True)

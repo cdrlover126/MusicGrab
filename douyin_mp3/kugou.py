@@ -54,6 +54,7 @@ class KugouInfo:
     duration_ms: int = 0
     play_url: str = ""
     share_url: str = ""
+    cover_url: str = ""
     extra: dict[str, Any] | None = None
 
 
@@ -111,6 +112,20 @@ def _extract_smarty(html: str) -> dict[str, Any]:
     if isinstance(data, dict):
         return data
     return {}
+
+
+def _extract_cover_url(smarty: dict[str, Any], data: dict[str, Any] | None = None) -> str:
+    """从酷狗元数据里取专辑封面地址。"""
+    for source in (smarty or {}, data or {}):
+        for key in ("album_spic", "imgurl", "album_img", "cover", "image", "pic_url"):
+            value = source.get(key)
+            if isinstance(value, str) and value.startswith("http"):
+                return value
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str) and item.startswith("http"):
+                        return item
+    return ""
 
 
 def _extract_title_artist(html: str) -> tuple[str, str]:
@@ -295,6 +310,7 @@ class KugouClient:
                 duration_ms=duration_ms,
                 play_url=play_url,
                 share_url=final_url,
+                cover_url=_extract_cover_url(smarty),
                 extra={"source": "audio_tag"},
             )
 
@@ -302,6 +318,7 @@ class KugouClient:
             raise KugouParseError(f"无法从酷狗链接提取歌曲hash: {url}")
 
         api_url = "https://wwwapi.kugou.com/yy/index.php"
+        api_data: dict[str, Any] = {}
         for mid_seed in (song_hash + "1234567890abcdef", song_hash):
             params = {
                 "r": "play/getdata",
@@ -322,6 +339,7 @@ class KugouClient:
 
             play_url = ""
             if isinstance(data, dict):
+                api_data = data
                 play_url = (
                     data.get("play_url")
                     or data.get("play_url_backup")
@@ -357,5 +375,6 @@ class KugouClient:
             duration_ms=duration_ms,
             play_url=play_url,
             share_url=final_url,
+            cover_url=_extract_cover_url(smarty, api_data),
             extra={"source": "api"},
         )

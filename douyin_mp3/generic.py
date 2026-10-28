@@ -21,6 +21,7 @@ class GenericMeta:
     webpage_url: str = ""
     extractor: str = ""
     album: str = ""
+    thumbnail: str = ""
 
 
 def _build_opts(
@@ -165,4 +166,20 @@ def download_generic_audio(
         webpage_url=str(info.get("webpage_url") or url),
         extractor=str(info.get("extractor_key") or info.get("extractor") or ""),
         album=album,
+        thumbnail=_pick_thumbnail(info),
     )
+
+
+def _pick_thumbnail(info: dict) -> str:
+    """挑选一张封面图地址（优先原图，退回缩略图列表首项）。"""
+    thumb = info.get("thumbnail")
+    if isinstance(thumb, str) and thumb.startswith("http"):
+        return thumb
+    thumbs = info.get("thumbnails")
+    if isinstance(thumbs, list):
+        for item in reversed(thumbs):
+            if isinstance(item, dict):
+                url = item.get("url") or ""
+                if isinstance(url, str) and url.startswith("http"):
+                    return url
+    return ""

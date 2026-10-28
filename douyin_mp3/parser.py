@@ -66,6 +66,7 @@ class VideoInfo:
     music_author: str = ""
     video_url: str = ""
     music_url: str = ""
+    cover_url: str = ""
     duration_ms: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -150,6 +151,8 @@ def _parse_item(item: dict, aweme_id: str, share_url: str) -> VideoInfo:
 
     music_url = _first_url(music, "play_url", "play_url_uri", "mid_url", "download_url")
 
+    cover_url = _first_url(video, "cover", "origin_cover", "dynamic_cover")
+
     return VideoInfo(
         aweme_id=str(item.get("aweme_id") or aweme_id),
         share_url=share_url,
@@ -159,6 +162,7 @@ def _parse_item(item: dict, aweme_id: str, share_url: str) -> VideoInfo:
         music_author=(music.get("author") or "").strip(),
         video_url=video_url,
         music_url=music_url,
+        cover_url=cover_url,
         duration_ms=int(item.get("duration") or video.get("duration") or 0),
         extra={"raw_music": music.get("play_url") is not None},
     )

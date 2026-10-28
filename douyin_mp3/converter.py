@@ -9,13 +9,29 @@ from pathlib import Path
 from mutagen.id3 import ID3, COMM, TALB, TCON, TIT2, TPE1, TRCK
 from mutagen.id3._util import ID3NoHeaderError
 
-from .config import CHANNELS, ID3_VERSION, SAMPLE_RATE, resolve_output_format
+from .config import (
+    CHANNELS,
+    CODEC_EXTENSIONS,
+    ID3_VERSION,
+    SAMPLE_RATE,
+    OutputFormat,
+    resolve_output_format,
+)
 
 DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+AUDIO_CODEC_RE = re.compile(r"Stream #\d+:\d+.*?:\s*Audio:\s*([A-Za-z0-9_]+)")
 
 
 class ConverterError(RuntimeError):
     pass
+
+
+@dataclass
+class MediaInfo:
+    """ffmpeg 探测到的媒体信息。"""
+
+    duration: float = 0.0
+    audio_codec: str = ""
 
 
 def find_ffmpeg(configured: str | None = None) -> str:
@@ -48,7 +64,12 @@ def find_ffmpeg(configured: str | None = None) -> str:
     )
 
 
-def probe_duration_seconds(ffmpeg: str, src: Path) -> float:
+def probe_media_info(ffmpeg: str, src: Path) -> MediaInfo:
+    """解析媒体信息：总时长 + 音频编码名。
+
+    BEST（不转码）模式需要靠音频编码决定输出容器，否则复制音轨会因
+    「容器装不下该编码」而失败。
+    """
     try:
         proc = subprocess.run(
             [ffmpeg, "-hide_banner", "-i", str(src)],
@@ -57,13 +78,49 @@ def probe_duration_seconds(ffmpeg: str, src: Path) -> float:
             encoding="utf-8",
             errors="replace",
         )
-        m = DURATION_RE.search(proc.stderr or "")
-        if m:
-            h, mi, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
-            return h * 3600 + mi * 60 + s
     except OSError:
-        pass
-    return 0.0
+        return MediaInfo()
+    text = proc.stderr or ""
+    duration = 0.0
+    match = DURATION_RE.search(text)
+    if match:
+        h, mi, s = int(match.group(1)), int(match.group(2)), float(match.group(3))
+        duration = h * 3600 + mi * 60 + s
+    codec = ""
+    match = AUDIO_CODEC_RE.search(text)
+    if match:
+        codec = match.group(1).lower()
+    return MediaInfo(duration=duration, audio_codec=codec)
+
+
+def probe_duration_seconds(ffmpeg: str, src: Path) -> float:
+    return probe_media_info(ffmpeg, src).duration
+
+
+def resolve_extension(
+    fmt: str,
+    source: Path | None = None,
+    ffmpeg: str | None = None,
+) -> str:
+    """决定输出文件的扩展名。
+
+    普通格式直接取定义里的扩展名；**BEST（不转码）**则按源音频编码反查容器，
+    保证「复制音轨」这一步不会因为容器不兼容而失败。
+    """
+    spec = resolve_output_format(fmt)
+    if not spec.is_copy:
+        return spec.ext
+    if source is not None:
+        try:
+            info = probe_media_info(ffmpeg or find_ffmpeg(), source)
+        except ConverterError:
+            info = MediaInfo()
+        ext = CODEC_EXTENSIONS.get(info.audio_codec, "")
+        if ext:
+            return ext
+    if source is not None and source.suffix:
+        return source.suffix.lstrip(".").lower()
+    return "mka"  # Matroska 音频：几乎什么编码都装得下
 
 
 @dataclass
@@ -136,6 +193,21 @@ def _ffmpeg_metadata_args(meta: Mp3Meta) -> list[str]:
     return args
 
 
+def _audio_bitrate_args(spec: OutputFormat, bitrate: str) -> list[str]:
+    """按格式与音质生成码率参数。
+
+    * 无损格式与 BEST（不转码）→ **忽略码率**
+    * ``v0`` → MP3 用 LAME 可变码率 ``-q:a 0``；其他有损格式回落到 320k
+    """
+    if spec.is_copy or spec.lossless:
+        return []
+    if bitrate == "v0":
+        if spec.key == "mp3":
+            return ["-q:a", "0"]
+        return ["-b:a", "320k"]
+    return ["-b:a", bitrate]
+
+
 def convert_to_audio(
     src: Path,
     dst: Path,
@@ -144,41 +216,50 @@ def convert_to_audio(
     fmt: str = "mp3",
     ffmpeg: str | None = None,
     meta: Mp3Meta | None = None,
+    cover: Path | None = None,
 ) -> Path:
     """把音视频源转码为指定音频格式。
 
     - MP3 额外用 mutagen 写入 ID3v2.3 标签（车机兼容性最好）
     - 其余格式由 ffmpeg 通过 -metadata 写入对应容器标签
+    - BEST 模式直接复制源音轨（零损失），扩展名由 ``resolve_extension`` 决定
+    - 传入 ``cover`` 可把封面图嵌入音频文件
     """
     spec = resolve_output_format(fmt)
     ffmpeg_bin = find_ffmpeg(ffmpeg)
     dst.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-hide_banner",
-        "-nostdin",
-        "-i",
-        str(src),
-        "-vn",
-        "-sn",
-        "-dn",
-        "-map_metadata",
-        "-1",
-        "-codec:a",
-        spec.codec,
-    ]
-    if not spec.lossless:
-        cmd.extend(["-b:a", bitrate])
-    cmd.extend(["-ar", str(spec.sample_rate or SAMPLE_RATE), "-ac", str(CHANNELS)])
+    # WAV 没有标准的封面承载位置；OGG/Opus 容器不支持 attached_pic，
+    # 强行写入会让 ffmpeg 直接报 "Unsupported codec id in stream 1"
+    use_cover = (
+        cover
+        if (cover and cover.exists() and spec.key not in ("wav", "opus"))
+        else None
+    )
+
+    cmd = [ffmpeg_bin, "-y", "-hide_banner", "-nostdin", "-i", str(src)]
+    if use_cover is not None:
+        cmd.extend(["-i", str(use_cover)])
+        # 有封面时不能再用 -vn（会把封面也一起去掉），改为显式映射
+        cmd.extend(["-map", "0:a", "-map", "1:v", "-sn", "-dn"])
+    else:
+        cmd.extend(["-vn", "-sn", "-dn"])
+    cmd.extend(["-map_metadata", "-1", "-codec:a", spec.codec])
+
+    if not spec.is_copy:
+        # 不转码时不能改采样率/声道，否则 ffmpeg 会被迫重编码
+        cmd.extend(["-ar", str(spec.sample_rate or SAMPLE_RATE), "-ac", str(CHANNELS)])
+
+    cmd.extend(_audio_bitrate_args(spec, bitrate))
 
     if spec.key == "mp3":
         cmd.extend(["-write_xing", "1"])
     else:
         if meta:
             cmd.extend(_ffmpeg_metadata_args(meta))
-    if spec.container:
+    if use_cover is not None:
+        cmd.extend(["-codec:v", "mjpeg", "-disposition:v:0", "attached_pic"])
+    if spec.container and not spec.is_copy:
         cmd.extend(["-f", spec.container])
     cmd.append(str(dst))
 

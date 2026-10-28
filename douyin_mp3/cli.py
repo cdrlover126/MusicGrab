@@ -47,14 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
         "-q",
         "--quality",
         default="320",
-        help="音质: 128/192/256/320 或 32-320 任意整数（默认 320）",
+        help="音质: v0=最佳VBR，320/256/192/128/96=CBR，或 32-320 任意整数（默认 320）",
     )
     convert.add_argument(
         "-f",
         "--format",
         choices=OUTPUT_FORMAT_CHOICES,
         default="mp3",
-        help="输出格式: mp3/wav/flac/m4a/aac/ogg/opus/wma（默认 mp3，车机首选）",
+        help="输出格式: mp3/m4a/opus/flac/wav/best（best=源格式不转码，默认 mp3）",
     )
     convert.add_argument(
         "-s",

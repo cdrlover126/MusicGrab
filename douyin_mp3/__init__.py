@@ -4,7 +4,7 @@
 并内置 yt-dlp / ffmpeg 的版本自检与在线升级能力。
 """
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 APP_NAME = "乐取"
 APP_NAME_EN = "MusicGrab"
 APP_ID = "com.cdrlover.musicgrab"

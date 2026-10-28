@@ -1,6 +1,6 @@
 ﻿"""打包 CSDN 资源上传用的发布物料（开发工具）。
 
-产出: dist/release/MusicGrab-v1.7.0-win-x64.zip
+产出: dist/release/MusicGrab-v1.8.0-win-x64.zip
       dist/release/发布说明.md
       dist/release/SHA256SUMS.txt
 """
@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 root = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
-version = "1.7.0"
+version = "1.8.0"
 rel = root / "dist" / "release"
 rel.mkdir(parents=True, exist_ok=True)
 
@@ -20,7 +20,7 @@ exe = root / "dist" / "MusicGrab.exe"
 if not exe.exists():
     raise SystemExit("未找到 dist\\MusicGrab.exe，请先运行 packaging\\build_exe.ps1")
 
-stage = rel / "MusicGrab-v1.7.0-win-x64"
+stage = rel / "MusicGrab-v1.8.0-win-x64"
 if stage.exists():
     shutil.rmtree(stage)
 stage.mkdir(parents=True)
@@ -40,7 +40,7 @@ if release_notes.exists():
     shutil.copy2(release_notes, stage / "发布说明.md")
 
 # 使用说明
-usage = """乐取 MusicGrab v1.7.0 —— 使用说明
+usage = """乐取 MusicGrab v1.8.0 —— 使用说明
 ================================
 
 【这是什么】

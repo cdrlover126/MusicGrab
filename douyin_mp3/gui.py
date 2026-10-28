@@ -10,6 +10,7 @@ from .config import (
     AUDIO_SOURCE_LABELS,
     COOKIE_BROWSER_CHOICES,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_QUALITY,
     ENGINE_CHOICES,
     ENGINE_LABELS,
     OUTPUT_FORMATS,
@@ -37,9 +38,10 @@ def _icon_path() -> Path | None:
 
 def run_gui() -> int:
     try:
-        from PySide6.QtCore import Qt, QObject, QTimer, Signal
-        from PySide6.QtGui import QFont
+        from PySide6.QtCore import Qt, QObject, QTimer, QUrl, Signal
+        from PySide6.QtGui import QDesktopServices, QFont
         from PySide6.QtWidgets import (
+            QAbstractItemView,
             QApplication,
             QCheckBox,
             QComboBox,
@@ -48,9 +50,11 @@ def run_gui() -> int:
             QFrame,
             QGridLayout,
             QHBoxLayout,
+            QHeaderView,
             QLabel,
             QLineEdit,
             QMainWindow,
+            QMenu,
             QMessageBox,
             QPlainTextEdit,
             QProgressBar,
@@ -58,6 +62,8 @@ def run_gui() -> int:
             QScrollArea,
             QSizePolicy,
             QSpinBox,
+            QTableWidget,
+            QTableWidgetItem,
             QTabWidget,
             QVBoxLayout,
             QWidget,
@@ -91,9 +97,16 @@ def run_gui() -> int:
         随解释器退出，配合 ``processor.cancel()`` 让当前任务尽快收尾。
         """
 
-        def __init__(self, options: ConvertOptions, lines: list[str], signals: WorkerSignals):
+        def __init__(
+            self,
+            options: ConvertOptions,
+            lines: list[str],
+            signals: WorkerSignals,
+            indices: list[int] | None = None,
+        ):
             self.processor = BatchProcessor(options)
             self.lines = lines
+            self.indices = indices
             self.signals = signals
             self._running = False
             self.processor.on_log = lambda msg: _safe_emit(signals.log, msg)
@@ -106,7 +119,7 @@ def run_gui() -> int:
 
             def run() -> None:
                 try:
-                    self.processor.run(self.lines)
+                    self.processor.run(self.lines, indices=self.indices)
                 finally:
                     self._running = False
 
@@ -319,6 +332,10 @@ def run_gui() -> int:
             self.resize(900, 700)
             self.setMinimumSize(820, 560)
             self.worker: Worker | None = None
+            self.last_options: ConvertOptions | None = None
+            self.result_rows: dict[int, int] = {}
+            self.last_results: dict[int, object] = {}
+            self._retrying = False
 
             self.setStyleSheet(
                 """
@@ -497,6 +514,8 @@ def run_gui() -> int:
             self._add_setting(7, "读取浏览器 Cookies", self._make_browser_row())
             self._add_setting(8, "输出目录", self._make_dir_row())
             self._add_setting(9, "组件更新", self._make_update_row())
+            self._refresh_quality_tip()
+            self._refresh_format_tip()
             self.tabs.addTab(self.settings_page, "输出设置")
 
             self.log_page = QWidget()
@@ -510,6 +529,48 @@ def run_gui() -> int:
             self.log_edit.setFont(font)
             log_layout.addWidget(self.log_edit)
             self.tabs.addTab(self.log_page, "详情日志")
+
+            # ── 任务结果（支持单条右键重试 / 打开）─────────────────
+            self.results_page = QWidget()
+            results_layout = QVBoxLayout(self.results_page)
+            results_layout.setContentsMargins(8, 8, 8, 8)
+            results_layout.setSpacing(8)
+            toolbar = QHBoxLayout()
+            toolbar.setContentsMargins(0, 0, 0, 0)
+            self.retry_failed_btn = QPushButton("重试全部失败项")
+            self.retry_failed_btn.setProperty("secondary", True)
+            self.retry_failed_btn.setEnabled(False)
+            self.retry_failed_btn.clicked.connect(self.retry_all_failed)
+            self.open_dir_btn = QPushButton("打开输出目录")
+            self.open_dir_btn.setProperty("secondary", True)
+            self.open_dir_btn.clicked.connect(
+                lambda: self._open_path(Path(self.dir_edit.text()).expanduser())
+            )
+            self.results_summary = QLabel("暂无任务")
+            self.results_summary.setStyleSheet("color: #6b7280;")
+            toolbar.addWidget(self.retry_failed_btn)
+            toolbar.addWidget(self.open_dir_btn)
+            toolbar.addStretch(1)
+            toolbar.addWidget(self.results_summary)
+            results_layout.addLayout(toolbar)
+
+            self.results_table = QTableWidget(0, 7)
+            self.results_table.setHorizontalHeaderLabels(
+                ["序号", "状态", "标题", "歌手", "时长", "大小", "输出文件"]
+            )
+            self.results_table.verticalHeader().setVisible(False)
+            self.results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self.results_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.results_table.customContextMenuRequested.connect(self._show_results_menu)
+            self.results_table.cellDoubleClicked.connect(self._open_result_row)
+            header = self.results_table.horizontalHeader()
+            header.setSectionResizeMode(QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.Stretch)
+            header.setSectionResizeMode(6, QHeaderView.Stretch)
+            results_layout.addWidget(self.results_table)
+            self.tabs.addTab(self.results_page, "任务结果")
+
             body.addWidget(self.tabs)
 
             central = QWidget()
@@ -574,14 +635,17 @@ def run_gui() -> int:
 
         def _make_quality_row(self) -> QWidget:
             w = QWidget()
-            h = QHBoxLayout(w)
+            v = QVBoxLayout(w)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(4)
+            h = QHBoxLayout()
             h.setContentsMargins(0, 0, 0, 0)
             h.setSpacing(10)
             self.quality_box = QComboBox()
             self.quality_box.addItem("自定义（在右侧输入）", "")
             for preset in QUALITY_PRESETS.values():
-                self.quality_box.addItem(f"{preset.label}", preset.key)
-            self.quality_box.setCurrentIndex(4)
+                self.quality_box.addItem(preset.label, preset.key)
+            self.quality_box.setCurrentIndex(self.quality_box.findData(DEFAULT_QUALITY))
             self.custom_quality = QSpinBox()
             self.custom_quality.setRange(0, 320)
             self.custom_quality.setSuffix(" kbps")
@@ -593,12 +657,18 @@ def run_gui() -> int:
             self.custom_quality.valueChanged.connect(self._on_custom_quality_changed)
             h.addWidget(self.quality_box, 1)
             h.addWidget(self.custom_quality, 0)
+            v.addLayout(h)
+            self.quality_tip = QLabel()
+            self.quality_tip.setStyleSheet("color: #6b7280;")
+            self.quality_tip.setWordWrap(True)
+            v.addWidget(self.quality_tip)
             return w
 
         def _on_preset_changed(self) -> None:
-            """选择预设时清空自定义码率。"""
+            """选择预设时清空自定义码率，并刷新说明。"""
             if self.quality_box.currentData():
                 self.custom_quality.setValue(0)
+            self._refresh_quality_tip()
 
         def _on_custom_quality_changed(self, value: int) -> None:
             """填写自定义码率时，下拉框切换到「自定义」项。"""
@@ -606,16 +676,56 @@ def run_gui() -> int:
                 self.quality_box.blockSignals(True)
                 self.quality_box.setCurrentIndex(0)
                 self.quality_box.blockSignals(False)
+            self._refresh_quality_tip()
+
+        def _refresh_quality_tip(self) -> None:
+            spec = OUTPUT_FORMATS.get(self.format_box.currentData() or "mp3")
+            if spec is not None and spec.is_copy:
+                self.quality_tip.setText("BEST 模式直接复制源音轨，音质设置自动忽略。")
+                self.quality_box.setEnabled(False)
+                self.custom_quality.setEnabled(False)
+                return
+            self.quality_box.setEnabled(True)
+            self.custom_quality.setEnabled(not (spec and spec.lossless))
+            if spec is not None and spec.lossless:
+                self.quality_tip.setText(f"{spec.label.split('（')[0]} 为无损格式，码率设置自动忽略。")
+                return
+            custom = self.custom_quality.value()
+            if custom > 0:
+                self.quality_tip.setText(f"自定义 {custom} kbps CBR；V0 仅 MP3 有效。")
+                return
+            key = self.quality_box.currentData()
+            if not key:
+                self.quality_tip.setText("在右侧填写 32~320 kbps 自定义固定码率。")
+                return
+            preset = QUALITY_PRESETS.get(key)
+            self.quality_tip.setText(preset.note if preset is not None else "")
 
         def _make_format_row(self) -> QWidget:
+            w = QWidget()
+            v = QVBoxLayout(w)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(4)
             self.format_box = QComboBox()
             for key, spec in OUTPUT_FORMATS.items():
-                self.format_box.addItem(f"{spec.label}  ·  .{spec.ext}", key)
+                suffix = "" if spec.is_copy else f"  ·  .{spec.ext}"
+                self.format_box.addItem(f"{spec.label}{suffix}", key)
             self.format_box.setToolTip(
-                "MP3 兼容性最好、车机首选；FLAC/WAV 无损但体积大；"
-                "Opus 压缩率最高；WMA 适合老车机"
+                "MP3 兼容性最好、车机首选；M4A 适合 Apple 生态；"
+                "FLAC/WAV 无损；Opus 压缩率最高；BEST 不转码、速度最快"
             )
-            return self.format_box
+            self.format_box.currentIndexChanged.connect(self._refresh_quality_tip)
+            v.addWidget(self.format_box)
+            self.format_tip = QLabel()
+            self.format_tip.setStyleSheet("color: #6b7280;")
+            self.format_tip.setWordWrap(True)
+            v.addWidget(self.format_tip)
+            self.format_box.currentIndexChanged.connect(self._refresh_format_tip)
+            return w
+
+        def _refresh_format_tip(self) -> None:
+            spec = OUTPUT_FORMATS.get(self.format_box.currentData() or "mp3")
+            self.format_tip.setText(spec.note if spec is not None else "")
 
         def _make_source_row(self) -> QWidget:
             self.source_box = QComboBox()
@@ -862,7 +972,7 @@ def run_gui() -> int:
             if custom > 0:
                 quality = str(custom)
             else:
-                quality = self.quality_box.currentData() or "192"
+                quality = self.quality_box.currentData() or DEFAULT_QUALITY
             options = ConvertOptions(
                 output_dir=Path(self.dir_edit.text()).expanduser(),
                 quality=quality,
@@ -876,8 +986,22 @@ def run_gui() -> int:
                 cookies_file=self.cookies_edit.text().strip() or None,
                 cookies_from_browser=self.browser_box.currentData() or None,
             )
+            self.last_options = options
+            self._reset_results()
+            self._launch(options, lines, None, retry=False)
+
+        def _launch(
+            self,
+            options: ConvertOptions,
+            lines: list[str],
+            indices: list[int] | None,
+            *,
+            retry: bool,
+        ) -> None:
+            """启动后台转换（首次运行与失败重试共用）。"""
+            self._retrying = retry
             self.worker_signals = WorkerSignals(self)
-            self.worker = Worker(options, lines, self.worker_signals)
+            self.worker = Worker(options, lines, self.worker_signals, indices)
             self.worker_signals.log.connect(self.append_log)
             self.worker_signals.item_start.connect(self._on_item_start)
             self.worker_signals.item_done.connect(self._on_item_done)
@@ -891,13 +1015,15 @@ def run_gui() -> int:
             self.progress.setRange(0, len(lines))
             self.progress.setValue(0)
             self.progress.setFormat(f"%p%（{len(lines)} 条）")
-            self.hint_label.setText(f"正在转换 {len(lines)} 条…")
+            self.hint_label.setText(
+                f"正在重试 {len(lines)} 条…" if retry else f"正在转换 {len(lines)} 条…"
+            )
+            self.retry_failed_btn.setEnabled(False)
             self.worker.start()
 
         def _on_item_start(self, index: int, total: int, _url: str) -> None:
             self.progress.setRange(0, total)
-            self.progress.setValue(index - 1)
-            self.progress.setFormat(f"第 {index}/{total} 条 · %p%")
+            self.progress.setFormat(f"第 {index} 条 · %p%")
 
         def stop(self) -> None:
             if self.worker and self.worker.isRunning():
@@ -913,9 +1039,9 @@ def run_gui() -> int:
             super().closeEvent(event)
 
         def _on_item_done(self, result: object) -> None:
-            status = getattr(result, "status", "")
-            if status == "ok":
-                self.progress.setValue(self.progress.value() + 1)
+            completed = min(self.progress.value() + 1, self.progress.maximum())
+            self.progress.setValue(completed)
+            self._upsert_result(result)
 
         def _on_finished(self, summary: object) -> None:
             self.start_btn.setEnabled(True)
@@ -931,7 +1057,146 @@ def run_gui() -> int:
                 self.progress.setValue(total)
             self.progress.setFormat(f"完成：成功 {ok} / 失败 {fail} · %p%")
             self.hint_label.setText(f"完成：成功 {ok} / 失败 {fail}")
-            QMessageBox.information(self, APP_NAME, f"转换完成\n成功：{ok}\n失败：{fail}")
+            self.worker = None
+            self._refresh_results_summary()
+            if self._retrying:
+                QMessageBox.information(
+                    self, APP_NAME, f"重试完成\n成功：{ok}\n失败：{fail}"
+                )
+            else:
+                QMessageBox.information(self, APP_NAME, f"转换完成\n成功：{ok}\n失败：{fail}")
+            self._retrying = False
+
+        # ── 任务结果表 ─────────────────────────────────────────
+        def _reset_results(self) -> None:
+            self.results_table.setRowCount(0)
+            self.result_rows.clear()
+            self.last_results.clear()
+            self.retry_failed_btn.setEnabled(False)
+            self.results_summary.setText("暂无任务")
+
+        def _upsert_result(self, result: object) -> None:
+            index = int(getattr(result, "index", 0))
+            self.last_results[index] = result
+            row = self.result_rows.get(index)
+            if row is None:
+                row = self.results_table.rowCount()
+                self.results_table.insertRow(row)
+                self.result_rows[index] = row
+            status = getattr(result, "status", "")
+            status_text = {"ok": "成功", "failed": "失败", "skipped": "跳过"}.get(
+                status, status or "未知"
+            )
+            duration = float(getattr(result, "duration", 0) or 0)
+            size = int(getattr(result, "size", 0) or 0)
+            output = str(getattr(result, "output_path", "") or "")
+            message = str(getattr(result, "message", "") or "")
+            cells = [
+                str(index),
+                status_text,
+                str(getattr(result, "title", "") or ""),
+                str(getattr(result, "artist", "") or ""),
+                f"{int(duration // 60)}:{int(duration % 60):02d}" if duration else "",
+                f"{size / 1024 / 1024:.1f} MB" if size else "",
+                output or message,
+            ]
+            from PySide6.QtGui import QColor
+
+            for col, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if col == 6:
+                    item.setToolTip(output or message)
+                if status == "failed":
+                    item.setToolTip(message)
+                    item.setForeground(QColor("#b91c1c"))
+                elif status == "skipped":
+                    item.setForeground(QColor("#6b7280"))
+                self.results_table.setItem(row, col, item)
+            self._refresh_results_summary()
+
+        def _refresh_results_summary(self) -> None:
+            results = list(self.last_results.values())
+            failed = [r for r in results if getattr(r, "status", "") == "failed"]
+            ok = len([r for r in results if getattr(r, "status", "") == "ok"])
+            self.retry_failed_btn.setEnabled(bool(failed) and not self._busy())
+            if not results:
+                self.results_summary.setText("暂无任务")
+            else:
+                self.results_summary.setText(
+                    f"共 {len(results)} 条 · 成功 {ok} · 失败 {len(failed)}"
+                )
+
+        def _busy(self) -> bool:
+            return bool(self.worker and self.worker.isRunning())
+
+        def _open_path(self, path: Path) -> None:
+            if not path.exists():
+                QMessageBox.warning(self, APP_NAME, f"路径不存在：{path}")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+        def _result_at_row(self, row: int) -> object | None:
+            for index, row_index in self.result_rows.items():
+                if row_index == row:
+                    return self.last_results.get(index)
+            return None
+
+        def _open_result_row(self, row: int, _col: int) -> None:
+            result = self._result_at_row(row)
+            output = str(getattr(result, "output_path", "") or "") if result else ""
+            if output and Path(output).exists():
+                self._open_path(Path(output))
+
+        def _show_results_menu(self, pos) -> None:  # noqa: ANN001
+            item = self.results_table.itemAt(pos)
+            menu = QMenu(self)
+            result = self._result_at_row(item.row()) if item is not None else None
+            if result is not None:
+                output = str(getattr(result, "output_path", "") or "")
+                if output and Path(output).exists():
+                    menu.addAction("打开文件", lambda: self._open_path(Path(output)))
+                    menu.addAction(
+                        "打开所在文件夹", lambda: self._open_path(Path(output).parent)
+                    )
+                source = str(getattr(result, "source", "") or "")
+                if source:
+                    menu.addAction(
+                        "复制来源地址",
+                        lambda: QApplication.clipboard().setText(source),
+                    )
+                if getattr(result, "status", "") == "failed":
+                    menu.addAction("重试此任务", lambda: self._start_retry([result]))
+                menu.addSeparator()
+            failed = [
+                r for r in self.last_results.values() if getattr(r, "status", "") == "failed"
+            ]
+            retry_all = menu.addAction(f"重试全部失败项（{len(failed)}）")
+            retry_all.setEnabled(bool(failed) and not self._busy())
+            retry_all.triggered.connect(self.retry_all_failed)
+            menu.exec(self.results_table.viewport().mapToGlobal(pos))
+
+        def retry_all_failed(self) -> None:
+            failed = [
+                r for r in self.last_results.values() if getattr(r, "status", "") == "failed"
+            ]
+            self._start_retry(failed)
+
+        def _start_retry(self, results: list) -> None:
+            if not results or self._busy():
+                return
+            if self.last_options is None:
+                QMessageBox.warning(self, APP_NAME, "请先执行一次转换，再重试失败项。")
+                return
+            lines = [str(getattr(r, "source", "")) for r in results]
+            indices = [int(getattr(r, "index", 0)) for r in results]
+            pairs = [(line, idx) for line, idx in zip(lines, indices) if line]
+            if not pairs:
+                return
+            lines = [line for line, _ in pairs]
+            indices = [idx for _, idx in pairs]
+            self.tabs.setCurrentWidget(self.log_page)
+            self.append_log(f"开始重试 {len(lines)} 条失败任务…")
+            self._launch(self.last_options, lines, indices, retry=True)
 
         # ── 组件自检与升级 ─────────────────────────────────────
         def start_update_check(self, manual: bool = False) -> None:

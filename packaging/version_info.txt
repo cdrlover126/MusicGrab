@@ -18,12 +18,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'cdrlover'),
             StringStruct('FileDescription', '乐取 MusicGrab - 多平台音轨批量提取转MP3'),
-            StringStruct('FileVersion', '1.7.0.0'),
+            StringStruct('FileVersion', '1.8.0.0'),
             StringStruct('InternalName', 'MusicGrab'),
             StringStruct('LegalCopyright', 'MIT License. Copyright (c) 2026 cdrlover.'),
             StringStruct('OriginalFilename', 'MusicGrab.exe'),
             StringStruct('ProductName', '乐取 MusicGrab'),
-            StringStruct('ProductVersion', '1.7.0.0')
+            StringStruct('ProductVersion', '1.8.0.0')
           ]
         )
       ]

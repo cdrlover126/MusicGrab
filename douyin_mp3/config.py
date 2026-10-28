@@ -41,12 +41,22 @@ class QualityPreset:
 QUALITY_PRESETS: dict[str, QualityPreset] = {
     p.key: p
     for p in (
-        QualityPreset("128", "128k", "标准 128kbps", "体积最小，车机兼容性最好"),
-        QualityPreset("192", "192k", "高清 192kbps", "音质与体积平衡，推荐"),
-        QualityPreset("256", "256k", "超清 256kbps", "高保真，体积较大"),
-        QualityPreset("320", "320k", "极清 320kbps", "最高质量 MP3，体积最大"),
+        QualityPreset(
+            "v0",
+            "v0",
+            "V0 最佳 VBR（推荐）",
+            "MP3 可变码率，质量/体积最佳；其他有损格式按 320k 处理",
+        ),
+        QualityPreset("320", "320k", "320 kbps CBR（极清）", "固定码率，体积最大"),
+        QualityPreset("256", "256k", "256 kbps CBR（超清）", "固定码率，体积较大"),
+        QualityPreset("192", "192k", "192 kbps CBR（高清）", "音质与体积平衡"),
+        QualityPreset("128", "128k", "128 kbps CBR（标准）", "体积最小，车机兼容性最好"),
+        QualityPreset("96", "96k", "96 kbps CBR（省空间）", "语音/播客足够，车机兼容性最好"),
     )
 }
+
+#: 默认音质
+DEFAULT_QUALITY = "320"
 
 AUDIO_SOURCE_CHOICES = ("auto", "video", "music")
 AUDIO_SOURCE_LABELS = {
@@ -78,24 +88,52 @@ class OutputFormat:
     note: str = ""
     sample_rate: int = 0  # 0 表示使用全局采样率
 
+    @property
+    def is_copy(self) -> bool:
+        """是否为「不转码，直接复制源音轨」格式。"""
+        return self.codec == "copy"
+
 
 OUTPUT_FORMATS: dict[str, OutputFormat] = {
     f.key: f
     for f in (
         OutputFormat("mp3", "mp3", "MP3（通用，车机首选）", "libmp3lame", note="有损，兼容性最好"),
-        OutputFormat("wav", "wav", "WAV（无损，体积大）", "pcm_s16le", lossless=True, note="未压缩 PCM"),
-        OutputFormat("flac", "flac", "FLAC（无损，体积小）", "flac", lossless=True, note="无损压缩"),
         OutputFormat("m4a", "m4a", "M4A / AAC（Apple 生态）", "aac", container="ipod", note="有损，体积小"),
-        OutputFormat("aac", "aac", "AAC（ADTS 裸流）", "aac", note="有损"),
-        OutputFormat("ogg", "ogg", "OGG Vorbis（开源格式）", "libvorbis", note="有损"),
+        OutputFormat("opus", "opus", "Opus（高压缩比）", "libopus", note="有损，语音友好", sample_rate=48000),
+        OutputFormat("flac", "flac", "FLAC（无损，体积小）", "flac", lossless=True, note="无损压缩"),
+        OutputFormat("wav", "wav", "WAV（无损，体积大）", "pcm_s16le", lossless=True, note="未压缩 PCM"),
         OutputFormat(
-            "opus", "opus", "Opus（高压缩比）", "libopus", note="有损，语音友好", sample_rate=48000
+            "best",
+            "",
+            "BEST（源格式，不转码）",
+            "copy",
+            note="零损失零转码，速度最快；输出扩展名随源音频格式而定",
         ),
-        OutputFormat("wma", "wma", "WMA（老车机兼容）", "wmav2", note="有损，Windows Media"),
     )
 }
 
 OUTPUT_FORMAT_CHOICES = tuple(OUTPUT_FORMATS.keys())
+
+#: 音频编码 → 容器扩展名（用于 BEST「不转码」模式）
+#: 复制音轨时容器必须能装下该编码，否则 ffmpeg 会报错
+CODEC_EXTENSIONS: dict[str, str] = {
+    "mp3": "mp3",
+    "mp3float": "mp3",
+    "aac": "m4a",
+    "alac": "m4a",
+    "opus": "opus",
+    "vorbis": "ogg",
+    "flac": "flac",
+    "pcm_s16le": "wav",
+    "pcm_s24le": "wav",
+    "pcm_s32le": "wav",
+    "pcm_f32le": "wav",
+    "pcm_u8": "wav",
+    "wavpack": "wv",
+    "ape": "ape",
+    "wmav2": "wma",
+    "wmapro": "wma",
+}
 
 # 常见视频容器（用于识别本地视频文件）
 VIDEO_EXTENSIONS = frozenset(
@@ -114,6 +152,11 @@ AUDIO_EXTENSIONS = frozenset(
 
 
 def resolve_bitrate(quality: str) -> str:
+    """把音质选项解析成 ffmpeg 码率参数。
+
+    * ``v0``  → ``"v0"``（MP3 可变码率，由转换器翻译成 ``-q:a 0``）
+    * 数字   → ``"320k"`` 这种形式
+    """
     quality = str(quality).strip().lower().rstrip("k").strip()
     if quality in QUALITY_PRESETS:
         return QUALITY_PRESETS[quality].bitrate
@@ -121,6 +164,18 @@ def resolve_bitrate(quality: str) -> str:
     if not 32 <= value <= 320:
         raise ValueError(f"比特率需在 32-320 kbps 之间，收到: {quality}")
     return f"{value}k"
+
+
+def describe_quality(quality: str) -> str:
+    """把音质选项描述成可读文本（用于日志与报告）。"""
+    key = str(quality or "").strip().lower()
+    preset = QUALITY_PRESETS.get(key)
+    if preset:
+        return preset.label
+    try:
+        return f"{resolve_bitrate(key)} CBR"
+    except (ValueError, TypeError):
+        return key or "未知"
 
 
 def temp_dir() -> Path:

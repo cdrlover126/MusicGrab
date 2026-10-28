@@ -11,16 +11,16 @@
 > 做这个项目的起因很朴素：车机 U 盘里塞满了 MP3，但每次想加新歌都得先下载、再用别的工具转格式、再手动改文件名和标签。
 > 于是我想：**把「粘贴链接 → 拿到能直接插车机播的 MP3」这件事，压到一次双击之内。**
 >
-> 这篇文章完整记录了从需求分析、架构设计、协议逆向，到打包分发、缺陷复盘的全过程。里面包含 **14 个真实踩过的坑**，其中 3 个是我自己写出来的 bug 被用户反馈后才发现的——我把它们的定位过程一并写了出来，因为**定位思路比结论更值钱**。
+> 这篇文章完整记录了从需求分析、架构设计、协议逆向，到打包分发、缺陷复盘的全过程。里面包含 **16 个真实踩过的坑**，其中 4 个是我自己写出来的 bug 被用户反馈后才发现的——我把它们的定位过程一并写了出来，因为**定位思路比结论更值钱**。
 
 **你将读到：**
 
 - 一套「双引擎 + 智能路由 + 多格式转码」的完整架构设计
 - 抖音 / 酷狗的接口逆向思路（不涉及破解 DRM）
-- 14 个真实坑位的定位与修复过程（含 3 个自造 bug）
+- 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 94 个单元测试的组织方式
+- 全部源码结构与 103 个单元测试的组织方式
 
 ---
 
@@ -32,7 +32,7 @@
 4. [关键实现：智能路由](#4-关键实现智能路由)
 5. [关键实现：多格式输出与本地文件](#5-关键实现多格式输出与本地文件)
 6. [界面演进：从命令行到选项页](#6-界面演进从命令行到选项页)
-7. [踩坑复盘：14 个真实坑位](#7-踩坑复盘14-个真实坑位)
+7. [踩坑复盘：16 个真实坑位](#7-踩坑复盘16-个真实坑位)
 8. [工程化：测试、打包与分发](#8-工程化测试打包与分发)
 9. [一次认真的合规评估](#9-一次认真的合规评估)
 10. [效果与数据](#10-效果与数据)
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 94 个单元测试
+├── tests/               # 103 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -321,34 +321,79 @@ self._apply_route(client, route)     # 动态改写会话代理
 
 ## 5. 关键实现：多格式输出与本地文件
 
-### 5.1 八种输出格式
+### 5.1 六种输出格式 + V0 / BEST
+
+v1.8.0 把格式体系收敛成 6 种，并把「音质」和「格式」彻底解耦：
 
 ```python
 OUTPUT_FORMATS = {
     "mp3":  OutputFormat("mp3",  "mp3",  "MP3（通用，车机首选）", "libmp3lame"),
-    "wav":  OutputFormat("wav",  "wav",  "WAV（无损，体积大）",  "pcm_s16le", lossless=True),
-    "flac": OutputFormat("flac", "flac", "FLAC（无损，体积小）", "flac",      lossless=True),
-    "m4a":  OutputFormat("m4a",  "m4a",  "M4A / AAC",           "aac", container="ipod"),
-    "aac":  OutputFormat("aac",  "aac",  "AAC（ADTS 裸流）",     "aac"),
-    "ogg":  OutputFormat("ogg",  "ogg",  "OGG Vorbis",          "libvorbis"),
+    "m4a":  OutputFormat("m4a",  "m4a",  "M4A / AAC（Apple 生态）", "aac", container="ipod"),
     "opus": OutputFormat("opus", "opus", "Opus（高压缩比）",     "libopus", sample_rate=48000),
-    "wma":  OutputFormat("wma",  "wma",  "WMA（老车机兼容）",   "wmav2"),
+    "flac": OutputFormat("flac", "flac", "FLAC（无损，体积小）", "flac", lossless=True),
+    "wav":  OutputFormat("wav",  "wav",  "WAV（无损，体积大）",  "pcm_s16le", lossless=True),
+    "best": OutputFormat("best", "",     "BEST（源格式，不转码）", "copy"),
 }
 ```
 
-标签写入策略：**MP3 继续用 mutagen 写 ID3v2.3**（车机兼容性最好，这是整个项目的核心诉求），其余格式交给 ffmpeg 的 `-metadata` 写容器原生标签：
+音质由 `-q` 统一控制，再由格式翻译成 ffmpeg 参数：
 
-| 格式 | 标签载体 | 验证方式 |
-|---|---|---|
-| MP3 | ID3v2.3 | mutagen 读取 `TIT2/TPE1/TALB/TRCK` |
-| FLAC / OGG / Opus | Vorbis Comment | `mutagen.flac` / `mutagen.oggvorbis` |
-| M4A | MP4 Atom | `mutagen.mp4` 读 `©nam/©ART/©alb` |
-| WMA | ASF | `mutagen.asf` 读 `WM/AlbumTitle` |
-| WAV | RIFF LIST-INFO | 二进制扫描 `INAM`/`IART` chunk |
+```python
+def _audio_bitrate_args(spec, bitrate):
+    if spec.is_copy or spec.lossless:
+        return []                    # 无损 / 不转码：忽略码率
+    if bitrate == "v0":
+        return ["-q:a", "0"] if spec.key == "mp3" else ["-b:a", "320k"]
+    return ["-b:a", bitrate]
+```
 
-> Opus 是个例外：编码器只接受 48kHz，所以格式定义里加了 `sample_rate=48000` 覆盖全局的 44.1kHz。
+几个容易忽略的点：
 
-### 5.2 本地文件：绕开一切解析
+- **V0 只对 MP3 有意义**：LAME 的 `-q:a 0` 是最佳可变码率；AAC/Opus 没有等价开关，统一回落到 320k
+- **BEST 必须探测源编码**：直接 `-codec:a copy` 时，如果容器装不下该编码（比如把 AAC 塞进 `.mp3`），ffmpeg 会直接报错。所以先解析 `Stream #0:1: Audio: aac`，再反查容器扩展名
+- **BEST 不能加 `-ar/-ac`**：只要声明了采样率或声道，ffmpeg 就会被迫重编码，"不转码"就名存实亡
+- **封面不能简单加 `-i cover`**：一旦有第二路输入，就必须显式 `-map 0:a -map 1:v`，否则默认流选择会把音频丢掉
+
+**BEST 的容器映射表**（源编码 → 输出扩展名）：
+
+| 源编码 | 扩展名 | | 源编码 | 扩展名 |
+|---|---|---|---|---|
+| mp3 | `.mp3` | | flac | `.flac` |
+| aac / alac | `.m4a` | | pcm_* | `.wav` |
+| opus | `.opus` | | 未知 | 源扩展名 / `.mka` |
+| vorbis | `.ogg` | | | |
+
+标签策略保持不变：**MP3 用 mutagen 写 ID3v2.3**（车机兼容性最好），其余格式交给 ffmpeg 的 `-metadata` 写容器原生标签（FLAC → Vorbis Comment、M4A → MP4 Atom、WAV → LIST-INFO）。Opus 编码器只接受 48kHz，格式定义里用 `sample_rate=48000` 覆盖全局的 44.1kHz。
+
+### 5.2 封面嵌入：顺手，但不能想当然
+
+封面来源按平台分别取：
+
+| 来源 | 字段 |
+|---|---|
+| 抖音 | `video.cover` / `origin_cover` / `dynamic_cover` |
+| 快手 | `coverUrl` / `poster` / `coverUrls` / `webpCoverUrls` / `thumbnailUrl` |
+| 酷狗 | `album_spic` / `imgurl` / `album_img` |
+| yt-dlp 站点 | `thumbnail` / `thumbnails` |
+| 本地视频 | ffmpeg 抽第 1 秒的一帧 |
+
+嵌入命令的关键是 `-disposition:v:0 attached_pic`：
+
+```python
+cmd += ["-i", str(cover),
+        "-map", "0:a", "-map", "1:v", "-sn", "-dn",
+        "-codec:a", spec.codec,
+        "-codec:v", "mjpeg", "-disposition:v:0", "attached_pic"]
+```
+
+实测踩到的边界：
+
+- **WAV 没有标准封面位置**，强行写会失败，直接跳过
+- **OGG/Opus 容器不支持 `attached_pic`**，ffmpeg 报 `Unsupported codec id in stream 1`，同样跳过
+- **MP3 的封面会被 mutagen 覆盖？** 不会。`write_id3()` 用 `ID3(path)` 读取现有标签再 `setall()`，`APIC` 帧会保留
+- **封面下载失败不能阻断转码**：超时、403、文件过小（<512 字节）都按"无封面"处理
+
+### 5.3 本地文件：绕开一切解析
 
 本地视频完全不需要联网、不需要解析接口，`ffmpeg` 直接抽音轨：
 
@@ -418,11 +463,30 @@ QSpinBox::down-button { height: 13px; }
 
 ![详情日志](../images/03-详情日志-实时过程.png)
 
+### 第四版：任务结果与单条重试
+
+批量任务里最让人抓狂的不是"全失败"，而是"99 条成功、1 条失败，却不知道是哪条"。v1.8.0 增加了独立的「任务结果」页，逐条列出状态、标题、歌手、时长、大小与输出文件，失败行标红并直接显示失败原因：
+
+![任务结果与单条重试](../images/09-任务结果-单条重试.png)
+
+右键失败行可直接「重试此任务」，顶部还有「重试全部失败项」。实现上有一个容易忽略的细节：**重试必须沿用原序号**，否则第 7 条重试后会变成 `001_xxx`，和已有文件撞名、也破坏了用户对编号的预期。
+
+为此给 `BatchProcessor.run()` 加了可选的 `indices` 参数，日志仍按"本次第几条"显示：
+
+```python
+def run(self, lines, indices=None):
+    for position, (kind, target) in enumerate(tasks):
+        index = indices[position] if indices else position + 1
+        ...
+        self.on_item_start(position + 1, total_items, target)   # 日志显示 [1/2]
+        result = self._process_one(..., index, ..., display=position + 1)
+```
+
 ---
 
-## 7. 踩坑复盘：14 个真实坑位
+## 7. 踩坑复盘：16 个真实坑位
 
-这一节是全文最有价值的部分。**14 个坑里有 3 个是我自己写出来的 bug**，而且都是用户先发现、我后定位的。
+这一节是全文最有价值的部分。**16 个坑里有 4 个是我自己写出来的 bug**，而且都是用户先发现、我后定位的。
 
 ### 坑位 1：QSpinBox 的上下箭头"消失"了 🔴
 
@@ -671,17 +735,71 @@ daemon 线程随解释器退出而结束，不会触发 Qt 的"运行中销毁"�
 > **教训**：任何"启动即触发"或"用户可随时打断"的后台任务，都必须假设**用户会在任务完成前关掉程序**。
 > `QThread` 的生命周期绑定在它的宿主对象上，而 GUI 对象的生命周期短于用户的耐心。
 
+### 坑位 15：`--skip-existing` 从上线起就没生效过 🔴
+
+**现象**：用户勾选「跳过已存在的同名文件」，第二次跑同一批链接，文件还是全部重新转码了一遍。
+
+**原因**：`_unique_path()` 的语义是「生成一个**保证不存在**的路径」：
+
+```python
+candidate = directory / f"{name}.{ext}"
+while candidate.exists():          # 一直加 (2)(3) 直到不冲突
+    candidate = directory / f"{name} ({counter}).{ext}"
+return candidate
+```
+
+而跳过判断却是拿它的返回值再判断一次：
+
+```python
+preview = self._unique_path(...)
+if preview.exists():               # 永远为 False
+    return TaskResult(..., "skipped", ...)
+```
+
+一个"保证不存在"的函数，返回值当然永远 `exists() == False`。这段逻辑从加入功能起就是死代码。
+
+**修法**：把「算首选路径」和「避免重名」拆成两个函数。跳过判断用稳定的 `_base_path()`，实际写入仍用 `_unique_path()`：
+
+```python
+def _base_path(self, directory, index, title, ext=None) -> Path: ...
+def _unique_path(self, directory, index, title, ext=None) -> Path:
+    candidate = self._base_path(...)
+    while candidate.exists():
+        candidate = candidate.with_name(f"{candidate.stem} ({n}){candidate.suffix}")
+```
+
+**教训**：函数名就是契约。"生成唯一路径"和"检查目标是否存在"是两件事，让一个函数同时承担，必然有一方语义被破坏。
+
+### 坑位 16：给 Opus 嵌封面，ffmpeg 直接罢工 🟡
+
+**现象**：开启封面嵌入后，MP3/M4A/FLAC 都正常，唯独 Opus 全部失败：
+
+```text
+[opus @ ...] Unsupported codec id in stream 1
+Could not write header (incorrect codec parameters ?): Invalid argument
+```
+
+**原因**：`-disposition:v:0 attached_pic` 是 MP4/ID3 体系的写法，**OGG/Opus 容器不支持 attached picture 流**；WAV 也没有标准封面位置。之前只排除了 WAV，漏掉了 Opus。
+
+**修法**：按容器能力建白名单，WAV / Opus 一律跳过封面（音频照常输出）：
+
+```python
+use_cover = cover if cover and spec.key not in ("wav", "opus") else None
+```
+
+**教训**：ffmpeg 的"通用参数"其实受 muxer 能力约束。做多格式输出时，要维护一张"格式 × 能力"矩阵，而不是假设所有容器都支持同一组特性。
+
 ---
 
 ## 8. 工程化：测试、打包与分发
 
 ### 8.1 测试
 
-94 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、标签写入，以及组件升级的版本比对与安全解压：
+103 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-94 passed in 1.31s
+103 passed in 1.70s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -965,7 +1083,7 @@ configuration: --enable-gpl --enable-version3 ...
 > 只处理用户自己已有的文件，不复制他人作品、不违反平台协议、不触发技术措施问题。
 > 商业上已有验证：App Store 上同类工具「MP3 Converter – Audio Extractor」有 4.8 万条评分。
 
-有意思的是，本项目**已经完成了路线 A 的 80%**——本地文件输入、8 种输出格式、车机兼容的 ID3v2.3、批量重命名与标签整理，正是纯本地车机工具的核心能力。
+有意思的是，本项目**已经完成了路线 A 的 80%**——本地文件输入、6 种输出格式 + BEST 不转码、封面嵌入、车机兼容的 ID3v2.3、批量重命名与标签整理，正是纯本地车机工具的核心能力。
 
 ---
 
@@ -996,16 +1114,27 @@ configuration: --enable-gpl --enable-version3 ...
 
 ### 输出格式实测
 
-8 种格式全部转码成功，标签载体逐个校验：
+v1.8.0 的 6 种格式全部实测通过（源：1 秒 192k AAC 视频 + 600×600 封面）：
 
-| 格式 | 产物 | 标签验证 |
+| 格式 | 产物验证 | 标签 / 封面 |
 |---|---|---|
-| MP3 | 320k / 44.1kHz | ID3v2.3 `TIT2/TPE1/TALB/TRCK` ✅ |
-| WAV | 无损 PCM | RIFF LIST-INFO `INAM/IART` ✅ |
-| FLAC | 无损压缩 | Vorbis Comment ✅ |
-| M4A | AAC 128k | MP4 Atom `©nam/©ART/©alb` ✅ |
-| AAC / OGG / Opus | — | ADTS / Vorbis / Opus Comment ✅ |
-| WMA | wmv2 | ASF `WM/AlbumTitle` ✅ |
+| MP3（V0 / 320k） | mp3 编码、44.1kHz | ID3v2.3 + `APIC` 封面 ✅ |
+| M4A | aac 编码、ipod 容器 | MP4 Atom + `covr` ✅ |
+| Opus | opus 编码、48kHz | 无封面（容器不支持），音频正常 ✅ |
+| FLAC | flac 编码 | Vorbis Comment + 封面 ✅ |
+| WAV | pcm_s16le | LIST-INFO，无封面 ✅ |
+| BEST | 源 AAC 直接复制 → `.m4a` | 零转码，体积与源一致 ✅ |
+
+**BEST 扩展名映射**也逐个验证过：
+
+```text
+a.mp3    codec=mp3        -> best ext=.mp3
+b.webm   codec=opus       -> best ext=.opus
+c.m4a    codec=aac        -> best ext=.m4a
+d.wav    codec=pcm_s16le  -> best ext=.wav
+e.flac   codec=flac       -> best ext=.flac
+f.ogg    codec=vorbis     -> best ext=.ogg
+```
 
 ### 组件升级链路实测
 
@@ -1024,27 +1153,36 @@ configuration: --enable-gpl --enable-version3 ...
 
 ### 下载
 
-**CSDN 资源下载**：见本文关联资源 `MusicGrab-v1.7.0-win-x64.zip`
+**CSDN 资源下载**：见本文关联资源 `MusicGrab-v1.8.0-win-x64.zip`
 
 - 单文件 `MusicGrab.exe`，**免安装、免 Python 环境**
 - 内置 ffmpeg 与 yt-dlp，离线可转码
 - 附 `使用说明.txt` / `发布说明.md` / `README.md` / `LICENSE`
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
+- v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`3f9b9e6f691c2f1039a434cc45fb03143aaeac2504682f3e924cd3ed6425681b`
-> SHA256（exe）：`3ee3d6134d83c5a66efa0884151d14df50a4be2bca4e07ef0a1c7e3d9aab9c6f`
+> SHA256（发布包）：`ab065eb9207f58b87454341f2afe048df3fbbc0b8982feecf3e73eb8234d52bb`
+> SHA256（exe）：`ee45b5262def7b0217564288bd8b69a98d41f8188bd740bb2a62b9d0ff93cf17`
 
 ### 快速上手
 
 1. 解压，双击 `MusicGrab.exe`
 2. 粘贴链接（每行一条），或点「添加本地文件…」选视频
-3. 点「开始转换」
+3. 在「输出设置」选音质（默认 320；想要最佳 VBR 选 V0）与格式（车机优先 MP3）
+4. 点「开始转换」
+5. 完成后切到「任务结果」页：双击打开文件，右键失败项可单独重试
 
 ### 命令行用法
 
 ```powershell
 # 批量转换
 MusicGrab convert "https://v.douyin.com/xxx/" "https://www.kugou.com/mixsong/xxx.html" -q 320 -o "D:\Music"
+
+# 最佳 VBR（MP3 专用）
+MusicGrab convert "https://v.douyin.com/xxx/" -q v0 -f mp3
+
+# BEST：直接复制源音轨，不转码
+MusicGrab convert "https://www.bilibili.com/video/BVxxxx" -f best
 
 # 本地视频转 FLAC
 MusicGrab convert "D:\视频\MV.mp4" -f flac
@@ -1077,11 +1215,17 @@ MusicGrab convert "https://youtu.be/xxxx" --proxy http://127.0.0.1:7890
 
 这件事逼着我补上了运行时自愈机制（§8.4）。回头看，它比任何单个站点解析器都更影响工具的**长期可用性**：平台改版了可以修，解析器坏了可以换，但依赖冻结会让整个分发模型在半年后彻底失效。
 
+**5. 功能做加法容易，做减法难**
+
+v1.8.0 最"反直觉"的改动是**删掉了 3 种输出格式**（AAC 裸流、OGG Vorbis、WMA）。它们技术上都能跑，但对车机用户几乎没有实际价值：AAC 裸流不如 M4A、OGG 生态不如 Opus、WMA 只有极老的车机才需要。保留它们只会让"格式 × 音质 × 封面 × 容器"的能力矩阵爆炸式增长——坑位 16 就是矩阵没维护好的结果。
+
+把格式收敛到 6 种、把音质抽象成 `V0 / CBR / 忽略` 三类之后，代码反而更短，测试也更容易写。**每加一个选项，都要为它维护一整行组合测试**，这是我这次最深的体会。
+
 ### 后续计划
 
 - [ ] 平台解析拆成**可选插件**，主程序聚焦纯本地车机音频管理（目录规范、批量重命名、ID3 整理）
 - [ ] 更换 **LGPL** 版 ffmpeg，解除 GPLv3 传染
-- [ ] 增补"保留原采样率"选项，避免 48kHz 素材被强制重采样
+- [ ] 增补"保留原采样率"选项，避免 48kHz 素材被强制重采样（BEST 已天然保留）
 - [ ] 单元测试覆盖度提升到 80%+
 - [ ] 增加**应用自身**的版本检查（需要一个可公网访问的版本清单接口）
 - [ ] 组件升级支持"仅本次跳过"与"回滚到上一个版本"

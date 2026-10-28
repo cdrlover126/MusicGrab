@@ -36,6 +36,7 @@ class KuaishouInfo:
     author: str = ""
     duration_ms: int = 0
     video_urls: list[str] = field(default_factory=list)
+    cover_url: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -59,6 +60,23 @@ def _clean_text(value: Any) -> str:
     text = str(value or "").replace("\\u002F", "/").replace("\\/", "/")
     text = html_module.unescape(text)
     return " ".join(text.split())
+
+
+def _cover_url(entity: dict) -> str:
+    """从快手作品数据里取封面图地址。"""
+    for key in ("coverUrl", "poster", "coverUrls", "webpCoverUrls", "thumbnailUrl"):
+        value = entity.get(key)
+        if isinstance(value, str) and value.startswith("http"):
+            return value
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.startswith("http"):
+                    return item
+                if isinstance(item, dict):
+                    url = item.get("url") or item.get("src") or ""
+                    if isinstance(url, str) and url.startswith("http"):
+                        return url
+    return ""
 
 
 def _collect_urls(node: Any, urls: list[str]) -> None:
@@ -171,6 +189,7 @@ def parse_kuaishou_html(html: str, photo_id: str, share_url: str) -> KuaishouInf
         raise KuaishouParseError(f"快手视频未取到可播放地址: {share_url}")
 
     duration = entity.get("duration")
+    cover_url = _cover_url(entity)
     return KuaishouInfo(
         photo_id=str(entity.get("photoId") or photo_id),
         share_url=share_url,
@@ -178,6 +197,7 @@ def parse_kuaishou_html(html: str, photo_id: str, share_url: str) -> KuaishouInf
         author=_clean_text(entity.get("userName")),
         duration_ms=int(duration) if isinstance(duration, (int, float)) else 0,
         video_urls=urls,
+        cover_url=cover_url,
     )
 
 
