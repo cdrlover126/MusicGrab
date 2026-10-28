@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 158 个单元测试的组织方式
+- 全部源码结构与 168 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 158 个单元测试
+├── tests/               # 168 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -847,11 +847,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-158 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底，以及组件升级的版本比对与安全解压：
+168 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-158 passed in 1.83s
+168 passed in 1.92s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1100,6 +1100,55 @@ def requests_verify(directory: Path | None = None) -> bool | str:
 > 外部动过了**（被删掉一半，所以既找不到证书包、也没法完整清理）。程序侧无法控制
 > 引导器的清理行为，但可以在文档里说明「正常关闭不会出现，残留目录可手动删除」。
 
+#### 第六步：为什么"升级完了还提示有更新"
+
+v1.8.0 上线后收到一条反馈：**每次启动都提示组件有更新，升级完重新打开还是提示**。
+
+拆开看，yt-dlp 是好的（覆盖层里就有 `version.py`，直接读到新版本），坏的是 ffmpeg：
+
+```python
+# 升级 ffmpeg 时做了什么
+install_ffmpeg(wheel)      # 只把 binaries/ 里的 ffmpeg.exe 装进覆盖层
+
+# 升级 yt-dlp 时做了什么
+install_ytdlp(wheel)       # 整个 yt_dlp/ 包都装进覆盖层
+```
+
+差别很致命：ffmpeg 的"版本"来自 `imageio-ffmpeg` 这个**包**，而升级只换二进制、
+不换包。于是：
+
+| | 当前版本读到的是 | 结果 |
+|---|---|---|
+| yt-dlp | 覆盖层里的 `version.py` → `2026.10.26` | 正确 |
+| ffmpeg | 打包内置的 `_definitions.py` → `0.6.0` | **永远是旧值** |
+
+拿 `0.6.0` 和 PyPI 的 `0.7.0` 比，结论永远是"有更新"——**哪怕用户已经升到 0.7.0 了**。
+
+修法有两个选项：一是把整个 `imageio-ffmpeg` 包也装进覆盖层（白白多占几 MB，
+而且它和 ffmpeg 二进制并不总是同版本发布）；二是**升级时把组件版本记进 `state.json`**，
+自检时以记录值为准。后者更轻，也更符合"组件版本"的语义：
+
+```python
+def current_imageio_ffmpeg_version() -> str:
+    """覆盖层里有外置 ffmpeg 时，以升级时记录的版本为准。
+
+    升级只换二进制、不换 imageio-ffmpeg 包，包版本会永远停在打包时内置的旧值；
+    拿它跟 PyPI 比就会每次启动都判定「有更新」。
+    """
+    if overlay_ffmpeg_exe() is not None:
+        recorded = installed_component_version(FFMPEG)
+        if recorded:
+            return recorded
+    return _read_module_version(_locate_package_dir("imageio_ffmpeg"))
+```
+
+顺带补了 yt-dlp 的兜底：覆盖层里的 `version.py` 万一缺失或损坏，就用记录值，
+再用打包内置值——任何一环都不该让"当前版本"变成空串（空串会被判定成"有更新"）。
+
+> 这类 bug 的共同特征：**比较的两端不是同一个量纲**。ffmpeg 的"当前版本"来自包、
+> "最新版本"来自同一个包，量纲一致；但包没被替换，于是"当前"永远是旧值。
+> 写自愈逻辑时，一定要想清楚"当前值"到底从哪儿读——**它必须来自真正在跑的那个东西**。
+
 #### 界面与体验
 
 启动后后台线程自检（不阻塞界面，失败静默降级），发现新版本就在窗口顶部弹一条横幅：
@@ -1266,8 +1315,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`762b24349087e319e5a45393ee89cdd5b33ea7bf173883ca7a53e728db28a978`
-> SHA256（exe）：`a30ff982649192fa916db77117e5cc947aab631aad3c72130f9926b22cd68b24`
+> SHA256（发布包）：`ca2bcc9579eaaedc278b542df571bb61973f00632c9cc7e6e94678b035041262`
+> SHA256（exe）：`d0629d33cb4184fa6b4d83c0d9f9eeb79187c7a6c0a7d6a272bf6c86b347565c`
 
 ### 快速上手
 

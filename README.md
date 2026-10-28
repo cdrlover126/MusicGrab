@@ -374,7 +374,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ## 7. 测试、文档与发布
 
 ```powershell
-# 运行单元测试（158 个）
+# 运行单元测试（168 个）
 pytest tests -q
 ```
 

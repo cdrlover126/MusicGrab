@@ -160,7 +160,7 @@ def is_newer(latest: str, current: str) -> bool:
 
 
 # ── 本地组件探测 ────────────────────────────────────────────
-def _locate_package_dir(name: str) -> Path | None:
+def _locate_package_dir(name: str, *, include_overlay: bool = True) -> Path | None:
     """定位某个包的源码目录（不执行模块代码）。
 
     顺序：覆盖层 → PyInstaller 冻结目录 → 常规 site-packages。
@@ -169,9 +169,10 @@ def _locate_package_dir(name: str) -> Path | None:
     ``--collect-binaries``，磁盘上只有 ``binaries/`` 子目录，Python 源码在 PYZ 里，
     此时仍需返回该目录（版本号文本不在盘上时会走 import 兜底）。
     """
-    overlay = overlay_root() / name
-    if (overlay / "__init__.py").exists():
-        return overlay
+    if include_overlay:
+        overlay = overlay_root() / name
+        if (overlay / "__init__.py").exists():
+            return overlay
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         frozen = Path(meipass) / name
@@ -212,16 +213,42 @@ def _read_module_version(package_dir: Path | None) -> str:
     return ""
 
 
+def installed_component_version(key: str) -> str:
+    """升级时记录下来的组件版本（没记录过返回空串）。"""
+    return str(load_state().get("installed", {}).get(key, "") or "")
+
+
 def current_ytdlp_version() -> str:
-    """当前实际生效的 yt-dlp 版本（含外置覆盖层）。"""
-    return _read_module_version(_locate_package_dir("yt_dlp"))
+    """当前实际生效的 yt-dlp 版本（含外置覆盖层）。
+
+    覆盖层里的 ``version.py`` 是最权威的；万一它缺失或损坏，退回升级时
+    记录的版本号，再不行才用打包内置的版本。
+    """
+    overlay = ytdlp_overlay_dir()
+    if (overlay / "__init__.py").exists():
+        version = _read_module_version(overlay)
+        if version:
+            return version
+        recorded = installed_component_version(YTDLP)
+        if recorded:
+            return recorded
+    return _read_module_version(_locate_package_dir("yt_dlp", include_overlay=False))
 
 
 def current_imageio_ffmpeg_version() -> str:
-    """内置 imageio-ffmpeg 包版本（ffmpeg 二进制由它提供）。
+    """当前实际生效的 ffmpeg 组件版本。
 
-    文本读取拿不到时（例如源码只在 PYZ 里），退回 import 读属性。
+    ffmpeg 二进制来自 ``imageio-ffmpeg`` 包，但升级时**只把二进制**装到覆盖层，
+    并不替换这个包——包版本会永远停在「打包时内置」的那一个。
+
+    若拿它去和 PyPI 比，就会出现用户反馈的那个问题：**每次启动都提示「有更新」，
+    明明已经升级过了**。因此覆盖层里有外置 ffmpeg 时，以**升级时记录的版本**为准；
+    没有记录时才退回打包内置的包版本。
     """
+    if overlay_ffmpeg_exe() is not None:
+        recorded = installed_component_version(FFMPEG)
+        if recorded:
+            return recorded
     version = _read_module_version(_locate_package_dir("imageio_ffmpeg"))
     if version:
         return version
@@ -479,7 +506,7 @@ def check_ffmpeg() -> ComponentStatus:
     """
     current_pkg = current_imageio_ffmpeg_version()
     ffmpeg_ver = current_ffmpeg_version()
-    detail = f"内置 ffmpeg {ffmpeg_ver}" if ffmpeg_ver else ""
+    detail = f"当前 ffmpeg {ffmpeg_ver}" if ffmpeg_ver else ""
     try:
         remote = fetch_remote_package("imageio-ffmpeg")
     except UpdateError as exc:
@@ -499,7 +526,31 @@ def check_ffmpeg() -> ComponentStatus:
 
 def check_components() -> list[ComponentStatus]:
     """检查全部可升级组件。"""
-    return [check_ytdlp(), check_ffmpeg()]
+    statuses = [check_ytdlp(), check_ffmpeg()]
+    _prune_stale_ignored(statuses)
+    return statuses
+
+
+def _prune_stale_ignored(statuses: list[ComponentStatus]) -> None:
+    """清理已经没有意义的「忽略此版本」记录。
+
+    组件已经是最新的（has_update=False）时，之前忽略的版本号不再有作用，
+    删掉它可以避免状态文件里堆着无用数据。网络异常时不清理。
+    """
+    state = load_state()
+    ignored = state.get("ignored") or {}
+    if not ignored:
+        return
+    changed = False
+    for status in statuses:
+        if status.error or not status.latest:
+            continue
+        if not status.has_update and ignored.get(status.key):
+            ignored.pop(status.key, None)
+            changed = True
+    if changed:
+        state["ignored"] = ignored
+        save_state(state)
 
 
 # ── 下载与安装 ──────────────────────────────────────────────
