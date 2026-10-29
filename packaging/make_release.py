@@ -1,12 +1,15 @@
 ﻿"""打包 CSDN 资源上传用的发布物料（开发工具）。
 
-产出: dist/release/MusicGrab-v1.8.0-win-x64.zip
+产出: dist/release/MusicGrab-v1.8.0-win-x64.zip          单文件版（CSDN 资源）
+      dist/release/MusicGrab-v1.8.0-win-x64-folder.zip    目录版（启动快、可整体拷贝）
+      dist/release/latest.json                            程序自身的版本清单
       dist/release/发布说明.md
       dist/release/SHA256SUMS.txt
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import zipfile
 from pathlib import Path
@@ -19,6 +22,10 @@ rel.mkdir(parents=True, exist_ok=True)
 exe = root / "dist" / "MusicGrab.exe"
 if not exe.exists():
     raise SystemExit("未找到 dist\\MusicGrab.exe，请先运行 packaging\\build_exe.ps1")
+
+# 目录版（可选产物，没有也不影响单文件版发布）
+folder_exe = root / "dist" / "onedir" / "MusicGrab" / "MusicGrab.exe"
+has_folder = folder_exe.exists()
 
 stage = rel / "MusicGrab-v1.8.0-win-x64"
 if stage.exists():
@@ -146,6 +153,18 @@ with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(p, p.relative_to(stage))
 shutil.rmtree(stage)
 
+# 目录版：整个文件夹打成一个 zip（内部保持文件夹结构）
+folder_zip = None
+if has_folder:
+    folder_zip = rel / f"MusicGrab-v{version}-win-x64-folder.zip"
+    if folder_zip.exists():
+        folder_zip.unlink()
+    folder_root = root / "dist" / "onedir" / "MusicGrab"
+    with zipfile.ZipFile(folder_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in sorted(folder_root.rglob("*")):
+            if p.is_file():
+                zf.write(p, Path("MusicGrab") / p.relative_to(folder_root))
+
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -155,11 +174,31 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-sums = f"{sha256(zip_path)}  {zip_path.name}\n"
-(rel / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
+lines = [f"{sha256(zip_path)}  {zip_path.name}\n"]
+if folder_zip is not None:
+    lines.append(f"{sha256(folder_zip)}  {folder_zip.name}\n")
+(rel / "SHA256SUMS.txt").write_text("".join(lines), encoding="utf-8")
+
+# 程序自身的版本清单：放到任意静态托管处，程序就能提示新版本
+manifest = {
+    "version": version,
+    "url": "",
+    "sha256": "",
+    "notes": "",
+    "published_at": "",
+    "size": zip_path.stat().st_size,
+}
+(rel / "latest.json").write_text(
+    json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+)
 
 print("发布包:", zip_path)
 print("大小: %.1f MB" % (zip_path.stat().st_size / 1024 / 1024))
 print("SHA256:", sha256(zip_path))
+if folder_zip is not None:
+    print("目录版:", folder_zip)
+    print("大小: %.1f MB" % (folder_zip.stat().st_size / 1024 / 1024))
+    print("SHA256:", sha256(folder_zip))
 print("EXE SHA256:", sha256(exe))
 print("EXE 大小: %.1f MB" % (exe.stat().st_size / 1024 / 1024))
+print("版本清单: ", rel / "latest.json", "（填好 url / sha256 后上传到静态托管）")

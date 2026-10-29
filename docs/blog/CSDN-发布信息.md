@@ -19,8 +19,8 @@
 ### SHA256
 
 ```
-34d26eb8f8858a9c7874ae5bc6adb63142765b29a740cce92c6a3f0079f61f25  MusicGrab-v1.8.0-win-x64.zip
-e0a48ea0eaf92894b641fa52adcaccd91ec0eaa527c080460c848945c74dd2da  MusicGrab.exe
+8cc7ca7e44212fc5c17ad219343c7ea3ec53bc1d88d0a536940cd136c394ea6e  MusicGrab-v1.8.0-win-x64.zip
+01ac2c09b025a8e2aab74e1234216ec6bf81e9c04bd083ccfcfaa16da4e7a2fe  MusicGrab.exe
 ```
 
 ---
@@ -115,7 +115,6 @@ FFmpeg转码, MP3标签写入, 批量下载工具, 车机音乐, 智能代理路
 MP3/M4A/Opus/FLAC/WAV。国内直连、境外自动走代理，启动自检更新。免安装，
 仅供个人学习研究。
 ```
-
 ---
 
 ## 四、上传操作步骤
@@ -136,11 +135,15 @@ MP3/M4A/Opus/FLAC/WAV。国内直连、境外自动走代理，启动自检更�
 ### 资源
 
 1. 「创作」→ **上传资源** → 选择 zip 文件
+   - `MusicGrab-v1.8.0-win-x64.zip`：**单文件版**（主资源，普通用户下这个）
+   - `MusicGrab-v1.8.0-win-x64-folder.zip`：**目录版**（可选资源，启动快、组件在 exe 旁边、可整个文件夹拷贝）
 2. 填标题、分类、标签、简介、详细说明
 3. **下载方式选「免费直接下载」**（或 0 积分）
 4. 上传 3 张截图作为资源展示图
 5. 提交后把资源链接回填到文章的「资源下载」小节
 6. 关联：在文章正文或「相关资源」里挂上该资源，资源与文章互相引流
+
+> 两个包里的 `SHA256SUMS.txt` 给出各自的校验值；资源详情页里贴一下更稳妥。
 
 ---
 

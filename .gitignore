@@ -8,6 +8,9 @@ dist/
 venv/
 .pytest_cache/
 *.spec.bak
+# PyInstaller 每次构建会自动生成 spec（单文件版/目录版两份，会互相覆盖），
+# 构建一律走 packaging\build_exe.ps1 的命令行参数，不依赖仓库里的 spec。
+MusicGrab.spec
 packaging/icon_preview.png
 packaging/layout_probe.png
 packaging/update_banner_probe.png

@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 178 个单元测试的组织方式
+- 全部源码结构与 192 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 178 个单元测试
+├── tests/               # 192 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -847,11 +847,11 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 ### 8.1 测试
 
-178 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定、组件目录布局，以及组件升级的版本比对与安全解压：
+192 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定、组件目录布局、程序版本更新，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-178 passed in 1.98s
+192 passed in 1.85s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1149,6 +1149,71 @@ def current_imageio_ffmpeg_version() -> str:
 > "最新版本"来自同一个包，量纲一致；但包没被替换，于是"当前"永远是旧值。
 > 写自愈逻辑时，一定要想清楚"当前值"到底从哪儿读——**它必须来自真正在跑的那个东西**。
 
+#### 第七步：程序自己怎么升级？
+
+组件能自愈，**程序自己**呢？先说清楚边界：
+
+- **组件（yt-dlp / ffmpeg）**：自动升级 ✓（前文的机制）
+- **程序自身（代码变了）**：**不可能自动完成** —— 正在运行的 exe 被占用，
+  重写 100 MB 的自己必然出错；而且"悄悄替换用户正在用的程序"风险太大
+
+所以程序自身的升级只能是「**提示 + 一键下载 + 手动覆盖**」：
+
+```text
+检查：拉版本清单 latest.json → 比对版本号
+提示：v1.8.0 → v1.8.1 有新版本
+下载：下官方发布包 → 校验 SHA256（不符即删）→ 解压到程序目录旁
+交接：弹窗告诉你放哪，由你手动覆盖（重启生效）
+```
+
+版本清单就是一个 JSON，放任意静态托管处即可：
+
+```json
+{
+  "version": "1.8.1",
+  "url": "https://example.com/MusicGrab-v1.8.1-win-x64.zip",
+  "sha256": "…",
+  "notes": "修复了……"
+}
+```
+
+程序里对应的是一个可配置项（源码常量或环境变量），没配置就当这功能不存在：
+
+```python
+RELEASE_MANIFEST_URL = ""          # 留空 = 不检查程序版本
+ENV_MANIFEST = "MUSICGRAB_UPDATE_MANIFEST"
+```
+
+#### 第八步：单文件还是目录？
+
+最后回到分发形态。单文件 exe（PyInstaller `--onefile`）有个隐藏代价：
+**每次启动都要把 100 MB 解压到 `%TEMP%\_MEIxxxxxx\`**。实测：
+
+| 形态 | 启动耗时 | 说明 |
+|---|---|---|
+| 单文件版 | **1.96 秒** | 每次解压 100 MB 到临时目录 |
+| 目录版 | **0.48 秒** | 直接加载，快 4 倍 |
+
+而且单文件版的临时目录会带来一堆副作用——本项目这一轮踩到的两个坑都跟它有关：
+
+- CA 证书包解压在 `_MEIxxxxxx\certifi\cacert.pem`，被「清理临时文件」工具删掉后
+  **所有 HTTPS 请求全挂**（报 `Could not find a suitable TLS CA certificate bundle`）
+- 退出时引导器删不掉临时目录，弹出 `Failed to remove temporary directory`
+
+目录版（`--onedir`）没有 `_MEI` 目录，这两个问题**从根上消失**。
+于是最终决定：**两种形态都出**，让用户按场景选。
+
+```powershell
+# 同一个入口，两个产物
+python -m PyInstaller @common --onefile --workpath build\onefile  --distpath dist
+python -m PyInstaller @common --onedir  --workpath build\onedir   --distpath dist\onedir
+```
+
+| 形态 | 适合谁 |
+|---|---|
+| 单文件版 `MusicGrab.exe` | 普通用户：双击即用，拷到哪都能跑 |
+| 目录版 `MusicGrab\` | 便携 / 爱折腾：启动快、组件可放 exe 旁边、整个文件夹拷 U 盘 |
+
 #### 界面与体验
 
 启动后后台线程自检（不阻塞界面，失败静默降级），发现新版本就在窗口顶部弹一条横幅：
@@ -1344,8 +1409,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`34d26eb8f8858a9c7874ae5bc6adb63142765b29a740cce92c6a3f0079f61f25`
-> SHA256（exe）：`e0a48ea0eaf92894b641fa52adcaccd91ec0eaa527c080460c848945c74dd2da`
+> SHA256（发布包）：`8cc7ca7e44212fc5c17ad219343c7ea3ec53bc1d88d0a536940cd136c394ea6e`
+> SHA256（exe）：`01ac2c09b025a8e2aab74e1234216ec6bf81e9c04bd083ccfcfaa16da4e7a2fe`
 
 ### 快速上手
 

@@ -11,7 +11,9 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 root = pathlib.Path(".")
 zip_path = root / "dist" / "release" / "MusicGrab-v1.8.0-win-x64.zip"
+folder_zip = root / "dist" / "release" / "MusicGrab-v1.8.0-win-x64-folder.zip"
 exe_path = root / "dist" / "MusicGrab.exe"
+manifest_path = root / "dist" / "release" / "latest.json"
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -30,6 +32,31 @@ if zip_sha not in sums:
     ok = False
 else:
     print("SHA256SUMS.txt OK")
+
+if folder_zip.exists():
+    folder_sha = sha256(folder_zip)
+    print("folder", folder_sha)
+    if folder_sha not in sums:
+        print("!! SHA256SUMS.txt 缺少目录版")
+        ok = False
+    notes_text = (root / "docs/releases/v1.8.0.md").read_text(encoding="utf-8")
+    if folder_sha not in notes_text:
+        print("!! 发布说明未记录目录版 SHA")
+        ok = False
+else:
+    print("（未构建目录版，跳过检查）")
+
+if manifest_path.exists():
+    import json
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    print("latest.json 版本:", manifest.get("version"))
+    if manifest.get("version") != "1.8.0":
+        print("!! 版本清单里的版本号不对")
+        ok = False
+else:
+    print("!! 缺少 latest.json")
+    ok = False
 
 with zipfile.ZipFile(zip_path) as zf:
     notes = zf.read("发布说明.md").decode("utf-8")

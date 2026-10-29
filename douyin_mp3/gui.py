@@ -30,6 +30,7 @@ from .dragdrop import (
 from .local_media import DEFAULT_LIMIT, collect_media_paths
 from .parser import PLATFORM_LABELS, classify_platform, extract_urls
 from .proxy import ROUTE_MODE_LABELS, ROUTE_MODES
+from . import release
 from . import updater
 
 
@@ -209,6 +210,14 @@ def run_gui() -> int:
         progress = Signal(int, int)
         message = Signal(str)
         succeeded = Signal(str)
+        failed = Signal(str)
+
+    class ReleaseSignals(QObject):
+        """程序自身版本检查 / 下载的后台信号。"""
+
+        checked = Signal(object)
+        progress = Signal(int, int)
+        done = Signal(object)
         failed = Signal(str)
 
     class UpdateChecker:
@@ -584,6 +593,7 @@ def run_gui() -> int:
             self._add_setting(8, "输出目录", self._make_dir_row())
             self._add_setting(9, "组件更新", self._make_update_row())
             self._add_setting(10, "转换报告", self._make_report_row())
+            self._add_setting(11, "程序版本", self._make_release_row())
             self._refresh_quality_tip()
             self._refresh_format_tip()
             self.tabs.addTab(self.settings_page, "输出设置")
@@ -951,6 +961,156 @@ def run_gui() -> int:
                 "已恢复为程序内置的 yt-dlp / ffmpeg。"
                 + ("\n\n重启程序后完全生效。" if removed else ""),
             )
+
+        def _make_release_row(self) -> QWidget:
+            """程序自身版本：检查新版 / 下载新版。"""
+            w = QWidget()
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(10)
+            self.release_label = QLabel(f"v{__version__}")
+            self.release_label.setStyleSheet("color: #374151;")
+            self.release_label.setToolTip(
+                "检查程序自身是否有新版本。\n"
+                "检测到新版本后可一键下载官方发布包，\n"
+                "再按提示手动覆盖当前程序目录即可升级。"
+            )
+            h.addWidget(self.release_label)
+            h.addStretch(1)
+            self.release_btn = QPushButton("检查新版")
+            self.release_btn.setProperty("secondary", True)
+            self.release_btn.setFixedWidth(96)
+            self.release_btn.clicked.connect(self.check_release)
+            h.addWidget(self.release_btn, 0)
+            return w
+
+        # ── 程序自身版本检查 / 下载 ─────────────────────────────
+        def check_release(self) -> None:
+            """后台线程检查程序是否有新版本。"""
+            if not release.manifest_url():
+                QMessageBox.information(
+                    self,
+                    APP_NAME,
+                    "尚未配置版本清单地址，暂不检查程序版本。\n\n"
+                    "如需启用，把清单地址填到 "
+                    "douyin_mp3\\release.py 的 RELEASE_MANIFEST_URL，"
+                    "或设置环境变量 MUSICGRAB_UPDATE_MANIFEST。",
+                )
+                return
+            self.release_btn.setEnabled(False)
+            self.release_label.setText(f"v{__version__}  正在检查…")
+
+            def worker() -> None:
+                try:
+                    info = release.fetch_release()
+                    result = info
+                except Exception as exc:  # noqa: BLE001
+                    result = exc
+                try:
+                    self._release_signals.checked.emit(result)
+                except RuntimeError:
+                    pass
+
+            import threading
+
+            self._release_signals = ReleaseSignals(self)
+            self._release_signals.checked.connect(self._on_release_checked)
+            self._release_signals.progress.connect(self._on_release_progress)
+            self._release_signals.done.connect(self._on_release_downloaded)
+            self._release_signals.failed.connect(self._on_release_failed)
+            threading.Thread(target=worker, daemon=True, name="mg-release").start()
+
+        def _on_release_checked(self, result: object) -> None:
+            self.release_btn.setEnabled(True)
+            if isinstance(result, Exception):
+                self.release_label.setText(f"v{__version__}")
+                self.append_log(f"程序版本检查失败（不影响使用）：{result}")
+                return
+            info = result
+            if release.is_newer_release(info.version, __version__):
+                self.release_label.setText(
+                    f"v{__version__} → v{info.version} 有新版本"
+                )
+                self.release_label.setStyleSheet("color: #b45309;")
+                self.release_btn.setText("下载新版")
+                self.release_btn.setProperty("secondary", False)
+                self.release_btn.style().unpolish(self.release_btn)
+                self.release_btn.style().polish(self.release_btn)
+                self.release_btn.clicked.disconnect()
+                self.release_btn.clicked.connect(self.download_release)
+                self._pending_release = info
+                self.append_log(f"发现程序新版本 v{info.version}")
+                if info.notes:
+                    self.append_log(f"更新说明：{info.notes}")
+            else:
+                self.release_label.setText(f"v{__version__}（已是最新）")
+                self.append_log(f"程序版本检查：v{__version__} 已是最新")
+
+        def download_release(self) -> None:
+            """后台下载新版发布包。"""
+            info = getattr(self, "_pending_release", None)
+            if info is None:
+                self.check_release()
+                return
+            self.release_btn.setEnabled(False)
+            self.release_label.setText(f"正在下载 v{info.version}…")
+
+            def worker() -> None:
+                try:
+                    dest = release.program_dir() / "新版下载"
+                    path = release.download_release(
+                        info,
+                        dest,
+                        on_progress=lambda d, t: self._release_signals.progress.emit(d, t),
+                    )
+                    target = release.staged_release_dir(info.version)
+                    release.extract_release(path, target)
+                    result = (path, target)
+                except Exception as exc:  # noqa: BLE001
+                    result = exc
+                try:
+                    self._release_signals.done.emit(result)
+                except RuntimeError:
+                    pass
+
+            import threading
+
+            self._release_signals.progress.connect(self._on_release_progress)
+            self._release_signals.done.connect(self._on_release_downloaded)
+            self._release_signals.failed.connect(self._on_release_failed)
+            threading.Thread(target=worker, daemon=True, name="mg-release-dl").start()
+
+        def _on_release_progress(self, done: int, total: int) -> None:
+            if total > 0:
+                pct = done * 100 // total
+                self.release_label.setText(f"正在下载… {pct}%")
+
+        def _on_release_downloaded(self, result: object) -> None:
+            self.release_btn.setEnabled(True)
+            if isinstance(result, Exception):
+                self.release_label.setText(f"v{__version__}")
+                self.append_log(f"下载新版本失败：{result}")
+                QMessageBox.warning(self, APP_NAME, f"下载新版本失败：\n{result}")
+                return
+            path, target = result
+            self.release_label.setText(f"v{__version__} → 新版已下载")
+            self.append_log(f"新版已下载并解压到：{target}")
+            QMessageBox.information(
+                self,
+                APP_NAME,
+                f"新版已下载并解压完成：\n{target}\n\n"
+                "请关闭本程序，把新版本目录里的内容复制到当前程序目录覆盖，"
+                "然后重新启动即可升级。\n\n"
+                "（安装包原件）" + str(path),
+            )
+            try:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _on_release_failed(self, message: str) -> None:
+            self.release_btn.setEnabled(True)
+            self.append_log(f"下载新版本失败：{message}")
 
         def pick_dir(self) -> None:
             chosen = QFileDialog.getExistingDirectory(self, "选择输出目录", self.dir_edit.text())
