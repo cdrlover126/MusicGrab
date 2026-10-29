@@ -4,7 +4,15 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import (
+    parse_qs,
+    parse_qsl,
+    quote,
+    unquote,
+    urlencode,
+    urlparse,
+    urlunparse,
+)
 
 import requests
 
@@ -50,6 +58,94 @@ def classify_platform(url: str) -> str:
     if "youtube.com" in host or "youtu.be" in host:
         return "youtube"
     return "generic"
+
+
+# ── B站链接规范化 ────────────────────────────────────────────
+# 问题：yt-dlp 的 BiliBili 提取器只认 `bilibili.com/video/BV…` 的规范形式。
+# 地址栏里常见的「语言前缀 / 跟踪参数 / 移动端域名 / b23.tv 短链」都会让
+# yt-dlp 匹配不上，掉进 generic 万能提取器，把网页 HTML 本身当成一个
+# "格式"，然后报 `The extracted extension ('html') is unusual…` 这个错。
+BILI_HOST = "bilibili.com"
+
+#: 跟踪参数（对取视频毫无用处，还会让 yt-dlp 认不出规范 URL）
+BILI_TRACKING_PARAMS = frozenset({
+    "trackid", "spm_id_from", "vd_source", "share_source", "share_medium",
+    "share_plat", "share_tag", "share_session", "shareTimes", "share_times",
+    "bbid", "tsl", "unique_k", "buvid", "launch_id", "web_flags",
+    "fusion_ui", "xsec_from", "plat_id", "timestamp", "random", "c",
+    "callback", "extra_parameter", "channels",
+})
+
+
+def resolve_bili_short_link(url: str) -> str | None:
+    """把 b23.tv 短链解析到最终地址（解析失败返回 None，调用方保留原链接）。"""
+    from .tls import requests_verify
+    try:
+        headers = {"User-Agent": MOBILE_UA}
+        verify = requests_verify()
+        resp = requests.head(
+            url, timeout=10, allow_redirects=True, headers=headers, verify=verify
+        )
+        final = resp.url or ""
+        if BILI_HOST in final:
+            return final
+        # 某些短链对 HEAD 返回 405，改用 GET（流式，不下载正文）
+        with requests.get(
+            url, timeout=10, allow_redirects=True, headers=headers,
+            verify=verify, stream=True,
+        ) as resp:
+            final = resp.url or ""
+            if BILI_HOST in final:
+                return final
+    except requests.RequestException:
+        return None
+    return None
+
+
+def normalize_bilibili(url: str) -> str:
+    """把 B站的各种链接形态归一到 yt-dlp 能认的规范形式。"""
+    raw = (url or "").strip()
+    if not raw.lower().startswith(("http://", "https://")):
+        return raw
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    is_short = host == "b23.tv" or host.endswith(".b23.tv")
+    is_bili = is_short or (
+        host == BILI_HOST or host.endswith("." + BILI_HOST)
+    )
+    if not is_bili:
+        return raw
+
+    # 1) 短链 → 真实地址
+    if is_short:
+        resolved = resolve_bili_short_link(raw)
+        if not resolved:
+            return raw
+        raw = resolved
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+
+    # 移动端域名归一到 www，保证 yt-dlp 的 BiliBili 提取器能匹配
+    if host in ("m.bilibili.com", "bilibili.com"):
+        parsed = parsed._replace(netloc="www.bilibili.com")
+
+    # 2) 视频页：提取 BV/av 号，只保留分 P 参数
+    m = re.search(r"(?:^|/)(?P<vid>[bB][vV][0-9A-Za-z]{8,10})|av(?P<aid>[0-9]{6,})",
+                  parsed.path)
+    if m:
+        bvid = m.group("vid") or f"av{m.group('aid')}"
+        query = ""
+        q = parse_qs(parsed.query)
+        if "p" in q:
+            query = "p=" + quote(str(q["p"][0]), safe="")
+        return f"https://www.bilibili.com/video/{bvid}" + (f"?{query}" if query else "")
+
+    # 3) 非视频页（番剧/音频/动态/合集等）：保留路径，仅去掉跟踪参数
+    keep = [
+        (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+        if k not in BILI_TRACKING_PARAMS
+    ]
+    return urlunparse(parsed._replace(query=urlencode(keep)))
 
 
 class DouyinParseError(RuntimeError):

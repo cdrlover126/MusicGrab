@@ -143,14 +143,25 @@ MP3 / M4A / FLAC 支持封面；WAV / Opus 容器不支持，会自动跳过（�
 """
 ( stage / "使用说明.txt").write_text(usage, encoding="utf-8")
 
+def _write_zip(zip_path: Path, root_dir: Path, *, prefix: str = "") -> None:
+    """确定性打包：条目时间戳固定，同一内容重复打包 SHA256 不变。"""
+    fixed = (2026, 10, 29, 12, 0, 0)
+    files = sorted(p for p in root_dir.rglob("*") if p.is_file())
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in files:
+            name = (prefix or ".") / p.relative_to(root_dir)
+            info = zipfile.ZipInfo(str(name).replace("\\", "/"), fixed)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 0
+            with p.open("rb") as src:
+                zf.writestr(info, src.read())
+
+
 # 打包
 zip_path = rel / f"MusicGrab-v{version}-win-x64.zip"
 if zip_path.exists():
     zip_path.unlink()
-with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-    for p in sorted(stage.rglob("*")):
-        if p.is_file():
-            zf.write(p, p.relative_to(stage))
+_write_zip(zip_path, stage)
 shutil.rmtree(stage)
 
 # 目录版：整个文件夹打成一个 zip（内部保持文件夹结构）
@@ -160,10 +171,7 @@ if has_folder:
     if folder_zip.exists():
         folder_zip.unlink()
     folder_root = root / "dist" / "onedir" / "MusicGrab"
-    with zipfile.ZipFile(folder_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in sorted(folder_root.rglob("*")):
-            if p.is_file():
-                zf.write(p, Path("MusicGrab") / p.relative_to(folder_root))
+    _write_zip(folder_zip, folder_root, prefix="MusicGrab")
 
 
 def sha256(path: Path) -> str:

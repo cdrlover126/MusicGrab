@@ -389,6 +389,7 @@ douyin-mp3 check-update --upgrade    # 直接下载安装（重启后生效）
 | **组件升级失败** | 下载中断 / SHA256 校验不符 / 解压异常 | 提示框会说明原因；**内置组件未被替换，程序照常可用**。换个网络重试，或点「输出设置 → 组件更新 → 恢复内置组件」删掉外置副本 |
 | **升级后又提示「有更新」** | 早期版本把版本号记在状态文件里，状态文件丢了就会误判 | v1.8.0 起版本号改为**跟着组件走**（`version.py` / `version.txt`）；若仍出现，点「立即检查」或「恢复内置组件」后重新升级一次 |
 | **升级后版本没变** | yt-dlp 升级需要重启程序才生效（当前会话已加载的模块无法热替换） | 退出并重新启动程序；ffmpeg 无此限制，升级后立即生效 |
+| **B站链接报 `The extracted extension ('html') is unusual…`** | 从浏览器复制的链接带了语言前缀（`/zh-Hans/`）、`trackid` 等跟踪参数、`m.bilibili.com` 移动端域名或 `b23.tv` 短链，yt-dlp 的 BiliBili 提取器认不出来，掉进 generic 提取器后把网页 HTML 当成了"格式" | v1.8.0 起程序会自动把 B站链接归一化（去前缀/参数、解析短链）再交给 yt-dlp；旧版本可手动把链接改写成 `https://www.bilibili.com/video/BV号` |
 | **转码报错 / 找不到 ffmpeg** | 环境异常或自定义路径错误 | 默认已用 `imageio-ffmpeg`，如仍报错可用 `--ffmpeg "C:\path\to\ffmpeg.exe"` 手动指定；也可尝试升级 ffmpeg 组件 |
 | **音质偏低 / 只能提取试听片段** | 平台限制或仅提供低码率音轨 | 部分平台确实只提供预览音频，换其他链接或站点可能会有更好选择 |
 | **文件名乱码/特殊字符** | 原标题含特殊符号 | 程序已做文件名清洗，会自动替换非法字符并用编号避免重名 |
@@ -431,7 +432,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1
 ## 7. 测试、文档与发布
 
 ```powershell
-# 运行单元测试（197 个）
+# 运行单元测试（205 个）
 pytest tests -q
 ```
 

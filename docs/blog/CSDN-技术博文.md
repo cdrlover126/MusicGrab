@@ -20,7 +20,7 @@
 - 16 个真实坑位的定位与修复过程（含 4 个自造 bug）
 - 一套让**冻结在 exe 里的 yt-dlp 能自我更新**的运行时自愈机制（含 PyInstaller import finder 技巧）
 - 一次完整的**开源合规风险评估**，包括为什么我最终没把程序放上应用商店
-- 全部源码结构与 197 个单元测试的组织方式
+- 全部源码结构与 205 个单元测试的组织方式
 
 ---
 
@@ -109,7 +109,7 @@ douyin-mp3/
 │   ├── updater.py       # 组件自检与在线升级（yt-dlp / ffmpeg）
 │   └── winconsole.py    # Windows 子进程控制台窗口抑制
 ├── packaging/           # 打包脚本、图标生成、MSIX 清单
-├── tests/               # 197 个单元测试
+├── tests/               # 205 个单元测试
 └── docs/                # 支持站点清单、隐私政策、上架清单
 ```
 
@@ -841,17 +841,53 @@ use_cover = cover if cover and spec.key not in ("wav", "opus") else None
 
 **教训**：ffmpeg 的"通用参数"其实受 muxer 能力约束。做多格式输出时，要维护一张"格式 × 能力"矩阵，而不是假设所有容器都支持同一组特性。
 
+### 坑位 17：用户实测 B站报 `The extracted extension ('html') is unusual` 🔴
+
+**现象**：用户拿一条从浏览器复制的 B站链接跑批量，直接报错——
+
+```text
+ERROR: The extracted extension ('html') is unusual and will be skipped
+for safety reasons. If you believe this is an error, please report…
+```
+
+**定位**：链接长这样——
+
+```
+https://www.bilibili.com/zh-Hans/video/BV1XynB6EEiM/?trackid=web_pegasus_0…
+```
+
+多了 `/zh-Hans/` 语言前缀和 `trackid` 参数。yt-dlp 的 BiliBili 提取器
+`_VALID_URL` 只认 `bilibili.com/video/BV…` 的规范形式，**认不出就掉进
+generic 万能提取器**，把网页 HTML 本身当成一个"格式"，而 `html` 不在
+`ALLOWED_EXTENSIONS` 安全名单里。同一台机器上换一条干净的 `BV` 链接就好——
+排除了网络、版本、风控，确定是 URL 形态问题。
+
+**修法**：批量处理前把 B站链接**归一化**，四件事：
+
+```python
+def normalize_bilibili(url):
+    # 1. b23.tv 短链 → 302 跟到真实地址
+    # 2. /zh-Hans/video/BV… → /video/BV…（去语言前缀）
+    # 3. m.bilibili.com → www.bilibili.com（移动端域名）
+    # 4. 只保留 p（分 P）参数，trackid/spm_id_from 等跟踪参数全清掉
+```
+
+**教训**：把"万能引擎"当兜底，兜底也会以最迷惑的方式失败——它不报
+"不认识这个 URL"，而是**把网页本身当成了要下载的东西**。所以对固定
+几个大站都要有一层自己的 URL 入口规范，把"人看得懂的地址"翻译成
+"解析引擎认得的地址"。
+
 ---
 
 ## 8. 工程化：测试、打包与分发
 
 ### 8.1 测试
 
-197 个单元测试，覆盖 URL 提取、平台识别、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定、组件目录布局、程序版本更新，以及组件升级的版本比对与安全解压：
+205 个单元测试，覆盖 URL 提取、平台识别、B站链接归一化、路由决策、代理判定、格式解析、码率规则、封面嵌入、任务编号、拖放文件扫描、拖放格式解析、报告保存方式、TLS 证书兜底、组件版本判定、组件目录布局、程序版本更新，以及组件升级的版本比对与安全解压：
 
 ```bash
 $ pytest tests -q
-197 passed in 1.87s
+205 passed in 1.88s
 ```
 
 关键在于**测试跟着 bug 走**——每个修复过的坑都留了回归测试：
@@ -1411,8 +1447,8 @@ f.ogg    codec=vorbis     -> best ext=.ogg
 - v1.7.0 起支持**启动自检组件更新**：yt-dlp 过旧时顶部会提示，一键升级不用等作者发版
 - v1.8.0 新增 **BEST 不转码 / V0 最佳 VBR / 封面嵌入 / 单条重试**
 
-> SHA256（发布包）：`8e8eb9a695cee4d525a6e82acfeee5362935345311b89e8620b42535d60efbc7`
-> SHA256（exe）：`d57daad7017cd354dbb31431d86e7ec5d581e846b099e2ad5a31cf0bc9638fc9`
+> SHA256（发布包）：`9c2fbbe160c2890443ed60dd0db1d94f6ad5005671572af948d9ca6f10c17749`
+> SHA256（exe）：`55c7ee47fc3f6fffcf29dd37845886d3c59c6817866c027bc8b2ff26ee3caf0a`
 
 ### 快速上手
 

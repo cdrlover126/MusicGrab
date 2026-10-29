@@ -39,9 +39,11 @@ from .local_media import collect_media_paths, is_media_file
 from .parser import (
     DouyinClient,
     DouyinParseError,
+    PLATFORM_LABELS,
     VideoInfo,
     classify_platform,
     extract_urls,
+    normalize_bilibili,
 )
 from .proxy import (
     ROUTE_MODE_LABELS,
@@ -424,6 +426,12 @@ class BatchProcessor:
         options = self.options
         display = display or index
         tmp_src = work_dir / f"{index:03d}.bin"
+        # B站链接先归一化（语言前缀 / b23.tv 短链 / 跟踪参数都会让
+        # yt-dlp 认不出规范地址，掉进 generic 提取器后报 html 扩展名错误）
+        normalized = normalize_bilibili(url)
+        if normalized != url:
+            url = normalized
+            self._log(f"[{display}/{total}] 已规范化 B站链接: {url}")
         platform = classify_platform(url)
         use_builtin = options.use_builtin_parser
         if not use_builtin and platform in ("douyin", "kuaishou", "kugou"):

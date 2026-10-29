@@ -7,7 +7,81 @@ from douyin_mp3.parser import (
     classify_platform,
     extract_aweme_id,
     extract_urls,
+    normalize_bilibili,
+    resolve_bili_short_link,
 )
+
+
+def test_normalize_bilibili_locale_prefix():
+    """语言前缀会让 yt-dlp 匹配不上 BiliBili 提取器，必须去掉。"""
+    assert (
+        normalize_bilibili(
+            "https://www.bilibili.com/zh-Hans/video/"
+            "BV1XynB6EEiM/?trackid=web_pegasus_0.router-web"
+        )
+        == "https://www.bilibili.com/video/BV1XynB6EEiM"
+    )
+
+
+def test_normalize_bilibili_keeps_page_param():
+    assert (
+        normalize_bilibili(
+            "https://www.bilibili.com/video/BV1GJ411x7h7?p=3&spm_id_from=333.88"
+        )
+        == "https://www.bilibili.com/video/BV1GJ411x7h7?p=3"
+    )
+
+
+def test_normalize_bilibili_mobile_host():
+    assert (
+        normalize_bilibili("https://m.bilibili.com/video/BV1GJ411x7h7")
+        == "https://www.bilibili.com/video/BV1GJ411x7h7"
+    )
+
+
+def test_normalize_bilibili_av_id():
+    assert (
+        normalize_bilibili("https://www.bilibili.com/video/av75450513?bvid=xx")
+        == "https://www.bilibili.com/video/av75450513"
+    )
+
+
+def test_normalize_bilibili_bvid_case_preserved():
+    """BVID 区分大小写，必须原样保留。"""
+    vid = "BV1XynB6EEiM"
+    result = normalize_bilibili(f"https://www.bilibili.com/video/{vid}")
+    assert result.endswith(vid)
+
+
+def test_normalize_bilibili_non_video_page_keeps_path():
+    out = normalize_bilibili(
+        "https://www.bilibili.com/bangumi/play/ep21495/?bsource=x&trackid=t"
+    )
+    assert out == "https://www.bilibili.com/bangumi/play/ep21495/?bsource=x"
+
+
+def test_normalize_bilibili_passthrough_others():
+    url = "https://example.com/video/BV1234567890"
+    assert normalize_bilibili(url) == url
+    assert normalize_bilibili("") == ""
+
+
+def test_normalize_bilibili_short_link(monkeypatch):
+    """b23.tv 短链：解析成功用最终地址，失败保留原链接。"""
+    import douyin_mp3.parser as p
+
+    monkeypatch.setattr(
+        p,
+        "resolve_bili_short_link",
+        lambda url: "https://www.bilibili.com/video/BV1GJ411x7h7",
+    )
+    assert (
+        p.normalize_bilibili("https://b23.tv/abcxyz")
+        == "https://www.bilibili.com/video/BV1GJ411x7h7"
+    )
+
+    monkeypatch.setattr(p, "resolve_bili_short_link", lambda url: None)
+    assert p.normalize_bilibili("https://b23.tv/abcxyz") == "https://b23.tv/abcxyz"
 
 
 def test_extract_urls_from_share_text():
