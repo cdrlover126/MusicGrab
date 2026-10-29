@@ -43,8 +43,20 @@ from . import __version__
 from .tls import requests_verify
 
 #: 版本清单地址（留空 = 不检查程序自身版本）
-#: 可以用环境变量 ``MUSICGRAB_UPDATE_MANIFEST`` 覆盖，方便测试或临时换源。
+#:
+#: **不配置也能正常用**：程序不会联网查版本，「程序版本」一行会显示当前版本，
+#: 并提示到发布页手动下载新版本。
+#:
+#: 想让程序自动提示 + 一键下载，填一个地址即可，支持三种来源：
+#:   1. HTTP(S) 地址（任意静态托管、对象存储等）
+#:   2. **本地文件路径**（如 ``D:\\share\\latest.json`` 或 ``file:///D:/share/latest.json``）
+#:      —— 完全离线也能用，适合内网共享目录 / U 盘
+#:   3. 环境变量 ``MUSICGRAB_UPDATE_MANIFEST`` 覆盖上面的默认值
 RELEASE_MANIFEST_URL = ""
+
+#: 「获取新版本」按钮打开的页面（留空则只显示版本号，不联网）
+RELEASE_PAGE_URL = ""
+
 ENV_MANIFEST = "MUSICGRAB_UPDATE_MANIFEST"
 
 HTTP_TIMEOUT = 12
@@ -77,6 +89,47 @@ class ReleaseInfo:
 def manifest_url() -> str:
     """版本清单地址（环境变量优先）。"""
     return (os.environ.get(ENV_MANIFEST) or RELEASE_MANIFEST_URL or "").strip()
+
+
+def release_page_url() -> str:
+    """「获取新版本」要打开的页面地址。"""
+    return RELEASE_PAGE_URL.strip()
+
+
+def local_path_of(target: str) -> Path | None:
+    """把本地路径或 ``file://`` 地址解析成本地路径（不是本地文件则返回 None）。"""
+    raw = (target or "").strip()
+    if not raw:
+        return None
+    if raw.lower().startswith("file://"):
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(raw)
+        path = unquote(parsed.path or "")
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            path = f"//{parsed.netloc}{path}"
+        elif re.match(r"^/[A-Za-z]:", path):
+            # file:///C:/xxx → C:/xxx
+            path = path[1:]
+        raw = path
+    elif "://" in raw:
+        return None
+    try:
+        path = Path(raw).expanduser()
+    except (OSError, ValueError):
+        return None
+    return path if path.is_file() else None
+
+
+def read_local_manifest(target: str) -> str | None:
+    """读取本地版本清单；不是本地文件时返回 None。"""
+    path = local_path_of(target)
+    if path is None:
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def normalize_version(text: str) -> str:
@@ -145,10 +198,13 @@ def parse_manifest(text: str) -> ReleaseInfo:
 
 
 def fetch_release(url: str | None = None) -> ReleaseInfo:
-    """拉取版本清单。"""
+    """拉取版本清单（支持 HTTP 地址与本地文件）。"""
     target = (url or manifest_url()).strip()
     if not target:
         raise ReleaseError("未配置版本清单地址")
+    local = read_local_manifest(target)
+    if local is not None:
+        return parse_manifest(local)
     try:
         response = requests.get(
             target,
@@ -168,13 +224,40 @@ def download_release(
     *,
     on_progress: ProgressCallback | None = None,
 ) -> Path:
-    """下载发布包并校验 SHA256，返回本地文件路径。"""
+    """下载发布包并校验 SHA256，返回本地文件路径。
+
+    ``info.url`` 可以是 HTTP 地址，也可以是**本地文件路径**（内网共享目录 / U 盘）。
+    """
     if not info.url:
         raise ReleaseError("版本清单里没有下载地址")
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    name = info.url.rsplit("/", 1)[-1] or f"MusicGrab-{info.version}.zip"
+    name = info.url.replace("\\", "/").rsplit("/", 1)[-1] or f"MusicGrab-{info.version}.zip"
     target = dest_dir / name
+
+    local = local_path_of(info.url)
+    if local is not None:
+        # 本地文件：直接复制并校验
+        digest = hashlib.sha256()
+        try:
+            with local.open("rb") as src, target.open("wb") as dst:
+                while True:
+                    chunk = src.read(1 << 20)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    digest.update(chunk)
+        except OSError as exc:
+            target.unlink(missing_ok=True)
+            raise ReleaseError(f"复制发布包失败：{exc}") from exc
+        actual = digest.hexdigest()
+        if info.sha256 and actual.lower() != info.sha256.lower():
+            target.unlink(missing_ok=True)
+            raise ReleaseError("校验失败：发布包的 SHA256 与官方公布值不一致")
+        if on_progress is not None:
+            on_progress(target.stat().st_size, target.stat().st_size)
+        return target
+
     digest = hashlib.sha256()
     done = 0
     try:

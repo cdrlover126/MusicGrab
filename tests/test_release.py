@@ -78,6 +78,64 @@ def test_fetch_release_without_url(monkeypatch):
         release.fetch_release()
 
 
+def test_local_manifest_file_is_read_without_network(tmp_path, monkeypatch):
+    """清单放在本地文件里也能用（内网共享目录 / U 盘，完全离线）。"""
+    manifest = tmp_path / "latest.json"
+    manifest.write_text(
+        json.dumps({"version": "1.9.0", "url": str(tmp_path / "pkg.zip")}),
+        encoding="utf-8",
+    )
+    # 不配置任何网络地址，直接用本地路径
+    info = release.fetch_release(str(manifest))
+    assert info.version == "1.9.0"
+    assert info.url == str(tmp_path / "pkg.zip")
+
+
+def test_local_manifest_file_url_form(tmp_path):
+    manifest = tmp_path / "latest.json"
+    manifest.write_text(json.dumps({"version": "1.9.0"}), encoding="utf-8")
+    info = release.fetch_release(manifest.as_uri())
+    assert info.version == "1.9.0"
+
+
+def test_local_path_detection(tmp_path):
+    real = tmp_path / "a.txt"
+    real.write_text("x", encoding="utf-8")
+    assert release.local_path_of(str(real)) == real
+    assert release.local_path_of(real.as_uri()) == real
+    assert release.local_path_of("https://example.com/x.json") is None
+    assert release.local_path_of(str(tmp_path / "nope.json")) is None
+
+
+def test_download_release_from_local_file(tmp_path):
+    """清单里指向本地发布包时，直接复制并校验。"""
+    import hashlib
+
+    payload = b"local release payload"
+    source = tmp_path / "MusicGrab-1.9.0.zip"
+    source.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+
+    dest = tmp_path / "downloads"
+    info = release.ReleaseInfo(
+        version="1.9.0", url=str(source), sha256=digest
+    )
+    path = release.download_release(info, dest)
+    assert path.read_bytes() == payload
+
+    # 校验不过时必须删掉
+    info_bad = release.ReleaseInfo(
+        version="1.9.0", url=str(source), sha256="00" * 32
+    )
+    with pytest.raises(release.ReleaseError):
+        release.download_release(info_bad, dest)
+
+
+def test_release_page_url_defaults_to_empty(monkeypatch):
+    monkeypatch.setattr(release, "RELEASE_PAGE_URL", "")
+    assert release.release_page_url() == ""
+
+
 def test_extract_release(tmp_path: Path):
     archive = tmp_path / "pkg.zip"
     with zipfile.ZipFile(archive, "w") as zf:
