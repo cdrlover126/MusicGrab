@@ -634,9 +634,9 @@ def run_gui() -> int:
             toolbar.addWidget(self.results_summary)
             results_layout.addLayout(toolbar)
 
-            self.results_table = QTableWidget(0, 7)
+            self.results_table = QTableWidget(0, 8)
             self.results_table.setHorizontalHeaderLabels(
-                ["序号", "状态", "标题", "歌手", "时长", "大小", "输出文件"]
+                ["序号", "状态", "标题", "歌手", "时长", "大小", "音质", "输出文件"]
             )
             self.results_table.verticalHeader().setVisible(False)
             self.results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -647,7 +647,7 @@ def run_gui() -> int:
             header = self.results_table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.ResizeToContents)
             header.setSectionResizeMode(2, QHeaderView.Stretch)
-            header.setSectionResizeMode(6, QHeaderView.Stretch)
+            header.setSectionResizeMode(7, QHeaderView.Stretch)
             results_layout.addWidget(self.results_table)
             self.tabs.addTab(self.results_page, "任务结果")
 
@@ -1485,6 +1485,7 @@ def run_gui() -> int:
             )
             duration = float(getattr(result, "duration", 0) or 0)
             size = int(getattr(result, "size", 0) or 0)
+            quality = str(getattr(result, "quality", "") or "")
             output = str(getattr(result, "output_path", "") or "")
             message = str(getattr(result, "message", "") or "")
             cells = [
@@ -1494,13 +1495,16 @@ def run_gui() -> int:
                 str(getattr(result, "artist", "") or ""),
                 f"{int(duration // 60)}:{int(duration % 60):02d}" if duration else "",
                 f"{size / 1024 / 1024:.1f} MB" if size else "",
+                quality,
                 output or message,
             ]
             from PySide6.QtGui import QColor
 
             for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
-                if col == 6:
+                if col == 6 and quality:
+                    item.setToolTip(quality)
+                if col == 7:
                     item.setToolTip(output or message)
                 if status == "failed":
                     item.setToolTip(message)

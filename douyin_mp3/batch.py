@@ -26,6 +26,7 @@ from .converter import (
     Mp3Meta,
     convert_to_audio,
     convert_to_mp3,
+    describe_audio_quality,
     probe_duration_seconds,
     resolve_extension,
     sanitize_filename,
@@ -72,6 +73,7 @@ class TaskResult:
     artist: str = ""
     duration: float = 0.0
     size: int = 0
+    quality: str = ""
 
 
 @dataclass
@@ -341,6 +343,7 @@ class BatchProcessor:
                         "歌手": result.artist,
                         "时长秒": round(result.duration, 1),
                         "大小字节": result.size,
+                        "音质": result.quality,
                         "输出": result.output_path,
                         "来源": result.source,
                         "说明": result.message,
@@ -397,8 +400,12 @@ class BatchProcessor:
             )
             size = out_path.stat().st_size
             self._log(f"[{display}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB)")
+            quality = describe_audio_quality(out_path)
+            if quality:
+                self._log(f"[{display}/{total}]    音质: {quality}")
             return TaskResult(
-                index, str(src), "ok", "成功", str(out_path), title, "本地文件", duration, size
+                index, str(src), "ok", "成功", str(out_path), title, "本地文件", duration, size,
+                quality=quality,
             )
         except (ConverterError, OSError, ValueError) as exc:
             self._log(f"[{display}/{total}] 失败: {exc}")
@@ -623,7 +630,13 @@ class BatchProcessor:
             self._log(
                 f"[{display}/{total}] 完成 -> {out_path.name} ({size / 1024 / 1024:.1f} MB){note}"
             )
-            return TaskResult(index, url, "ok", "成功", str(out_path), title, artist, duration, size)
+            quality = describe_audio_quality(out_path)
+            if quality:
+                self._log(f"[{display}/{total}]    音质: {quality}")
+            return TaskResult(
+                index, url, "ok", "成功", str(out_path), title, artist, duration, size,
+                quality=quality,
+            )
         except (
             DownloadError,
             DouyinParseError,

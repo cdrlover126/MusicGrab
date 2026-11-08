@@ -97,6 +97,61 @@ def probe_duration_seconds(ffmpeg: str, src: Path) -> float:
     return probe_media_info(ffmpeg, src).duration
 
 
+def describe_audio_quality(path: Path) -> str:
+    """读取输出文件的实际音质参数，返回任务结果里展示的简短描述。
+
+    用 mutagen 直接读文件头，不依赖 ffmpeg、不联网。返回形如
+    ``320 kbps · 44.1 kHz · 立体声`` 的字符串；无损格式会带上位深
+    （``16 bit``）。读不出（文件损坏 / 极端编码）时返回空串。
+    """
+    path = Path(path)
+    try:
+        from mutagen import File as MutagenFile
+
+        audio = MutagenFile(str(path))
+    except Exception:  # noqa: BLE001  载入失败就当作拿不到音质
+        return ""
+    info = getattr(audio, "info", None)
+    if info is None:
+        return ""
+
+    parts: list[str] = []
+
+    # 码率（FLAC/WAV 等无损头里没有，用 体积×8/时长 反推平均值）
+    bitrate = int(getattr(info, "bitrate", 0) or 0)
+    if bitrate <= 0:
+        try:
+            duration = float(getattr(info, "length", 0) or 0)
+            if duration >= 0.5:
+                bitrate = int(path.stat().st_size * 8 / duration)
+        except OSError:
+            bitrate = 0
+    if bitrate > 0:
+        parts.append(f"{round(bitrate / 1000)} kbps")
+
+    # 采样率
+    sample_rate = int(getattr(info, "sample_rate", 0) or 0)
+    if sample_rate > 0:
+        khz = sample_rate / 1000
+        parts.append(f"{khz:g} kHz")
+
+    # 位深（无损格式才有意义）
+    bits = int(getattr(info, "bits_per_sample", 0) or 0)
+    if bits > 0:
+        parts.append(f"{bits:g} bit")
+
+    # 声道数
+    channels = int(getattr(info, "channels", 0) or 0)
+    if channels == 1:
+        parts.append("单声道")
+    elif channels == 2:
+        parts.append("立体声")
+    elif channels > 2:
+        parts.append(f"{channels} 声道")
+
+    return " · ".join(parts)
+
+
 def resolve_extension(
     fmt: str,
     source: Path | None = None,

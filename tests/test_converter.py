@@ -9,6 +9,7 @@ from douyin_mp3.converter import (
     Mp3Meta,
     convert_to_audio,
     convert_to_mp3,
+    describe_audio_quality,
     find_ffmpeg,
     resolve_extension,
     write_id3,
@@ -128,3 +129,27 @@ def test_cover_is_embedded_in_mp3(tmp_path, source_wav, ffmpeg_bin):
     )
     tags = ID3(out)
     assert tags.getall("APIC"), "MP3 应包含 APIC 封面帧"
+
+
+def test_describe_audio_quality_mp3(tmp_path, source_wav, ffmpeg_bin):
+    out = tmp_path / "q.mp3"
+    convert_to_mp3(source_wav, out, "192k", ffmpeg=ffmpeg_bin)
+    text = describe_audio_quality(out)
+    assert "192" in text and " kbps" in text, text
+    assert "kHz" in text, text
+    assert ("单声道" in text) or ("立体声" in text), text
+
+
+def test_describe_audio_quality_flac_shows_bits(tmp_path, source_wav, ffmpeg_bin):
+    out = tmp_path / "q.flac"
+    convert_to_audio(source_wav, out, "320k", fmt="flac", ffmpeg=ffmpeg_bin)
+    text = describe_audio_quality(out)
+    assert "bit" in text, text
+    assert "kHz" in text, text
+
+
+def test_describe_audio_quality_corrupt_file_returns_empty(tmp_path):
+    broken = tmp_path / "broken.mp3"
+    broken.write_bytes(b"not an audio file at all")
+    assert describe_audio_quality(broken) == ""
+    assert describe_audio_quality(tmp_path / "missing.mp3") == ""
