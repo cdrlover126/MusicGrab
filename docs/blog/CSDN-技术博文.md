@@ -1533,9 +1533,9 @@ v1.8.0 最"反直觉"的改动是**删掉了 3 种输出格式**（AAC 裸流、
 
 ### 相关阅读
 
-- 项目文档：[README.md](https://github.com/<OWNER>/MusicGrab)
-- 支持站点完整清单与实测明细：[docs/SUPPORTED_SITES.md](https://github.com/<OWNER>/MusicGrab/blob/main/docs/SUPPORTED_SITES.md)
-- 隐私政策：[docs/PRIVACY_POLICY.md](https://github.com/<OWNER>/MusicGrab/blob/main/docs/PRIVACY_POLICY.md)
+- 项目文档：[README.md](https://github.com/cdrlover126/MusicGrab)
+- 支持站点完整清单与实测明细：[docs/SUPPORTED_SITES.md](https://github.com/cdrlover126/MusicGrab/blob/main/docs/SUPPORTED_SITES.md)
+- 隐私政策：[docs/PRIVACY_POLICY.md](https://github.com/cdrlover126/MusicGrab/blob/main/docs/PRIVACY_POLICY.md)
 
 ### 许可
 
