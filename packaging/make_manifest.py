@@ -22,7 +22,7 @@ from datetime import date
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = pathlib.Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 REL = ROOT / "dist" / "release"
 VERSION = "1.8.0"
 

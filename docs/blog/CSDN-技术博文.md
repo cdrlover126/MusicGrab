@@ -1,4 +1,4 @@
-﻿# 从 0 到 1：用 Python 写一款支持 1500+ 站点的音轨批量提取工具（含完整架构与踩坑复盘）
+# 从 0 到 1：用 Python 写一款支持 1500+ 站点的音轨批量提取工具（含完整架构与踩坑复盘）
 
 > **原创声明**：本文为原创技术文章，代码与文档均基于作者实际开发项目整理。
 > **首发声明**：首发于 CSDN。
@@ -1533,9 +1533,9 @@ v1.8.0 最"反直觉"的改动是**删掉了 3 种输出格式**（AAC 裸流、
 
 ### 相关阅读
 
-- 项目文档：[README.md](https://github.com/your-name/douyin-mp3)
-- 支持站点完整清单与实测明细：[docs/SUPPORTED_SITES.md](https://github.com/your-name/douyin-mp3/blob/main/docs/SUPPORTED_SITES.md)
-- 隐私政策：[docs/PRIVACY_POLICY.md](https://github.com/your-name/douyin-mp3/blob/main/docs/PRIVACY_POLICY.md)
+- 项目文档：[README.md](https://github.com/<OWNER>/MusicGrab)
+- 支持站点完整清单与实测明细：[docs/SUPPORTED_SITES.md](https://github.com/<OWNER>/MusicGrab/blob/main/docs/SUPPORTED_SITES.md)
+- 隐私政策：[docs/PRIVACY_POLICY.md](https://github.com/<OWNER>/MusicGrab/blob/main/docs/PRIVACY_POLICY.md)
 
 ### 许可
 

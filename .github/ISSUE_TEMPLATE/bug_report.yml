@@ -1,0 +1,38 @@
+name: Bug report
+description: 报告问题或异常行为
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先搜索已有 Issue。请勿在 Issue 中粘贴 Cookie、账号凭据或其他敏感信息。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰描述发生了什么、期望行为是什么。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 提供可复现的步骤（可隐去具体私密链接，用占位符说明平台/链接形态）。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 程序版本
+      placeholder: "例如 v1.8.0"
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: "例如 Windows 11 x64"
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志/报错信息
+      description: 粘贴相关日志片段（请脱敏）。
+      render: text

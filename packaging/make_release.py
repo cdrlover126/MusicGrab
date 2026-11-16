@@ -1,4 +1,4 @@
-﻿"""打包 CSDN 资源上传用的发布物料（开发工具）。
+"""打包 CSDN 资源上传用的发布物料（开发工具）。
 
 产出: dist/release/MusicGrab-v1.8.0-win-x64.zip          单文件版（CSDN 资源）
       dist/release/MusicGrab-v1.8.0-win-x64-folder.zip    目录版（启动快、可整体拷贝）
@@ -14,7 +14,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-root = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
+root = Path(__file__).resolve().parents[1]
 version = "1.8.0"
 rel = root / "dist" / "release"
 rel.mkdir(parents=True, exist_ok=True)

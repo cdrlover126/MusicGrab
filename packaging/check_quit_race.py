@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
+ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "packaging" / "_quit_while_checking.py"
 
 

@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-root = Path(r"E:\ai\opencode\内网web自动化开发\douyin-mp3")
+root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
