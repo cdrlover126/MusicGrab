@@ -44,7 +44,7 @@ def test_gui_source_does_not_disable_whole_tab_widget():
     """回归：源码中不得出现 `self.tabs.setEnabled(False)`（会禁用页签点击）。"""
     import inspect
 
-    import douyin_mp3.gui as gui_mod
+    import musicgrab.gui as gui_mod
 
     src = inspect.getsource(gui_mod)
     assert "self.tabs.setEnabled(False)" not in src

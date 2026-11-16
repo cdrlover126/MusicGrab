@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3 import release
+from musicgrab import release
 
 
 def test_normalize_version_strips_prefix():

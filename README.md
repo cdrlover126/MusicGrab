@@ -4,8 +4,6 @@
 
 > 当前版本 **v1.8.0** · Windows x64 · 免安装单文件（约 102 MB）· [发布说明](docs/releases/v1.8.0.md)
 
-> **公开发布说明**：项目对外名称为 **乐取 MusicGrab**（建议 GitHub 仓库名使用 `MusicGrab`/`musicgrab`）；为保持兼容，当前 Python 包名与 CLI 命令仍为 `douyin-mp3` / `douyin_mp3`。请仅在遵守目标平台服务条款及当地法律法规的前提下，出于个人学习研究目的使用本工具。
-
 - **车机友好**：MP3、ID3v2.3 标签（歌名/歌手/专辑/来源注释）、44.1kHz 双声道、V0 可变码率或 96–320 kbps 固定码率
 - **格式齐全**：MP3 / M4A / Opus / FLAC / WAV，外加 **BEST（源格式不转码）**；可把封面图嵌入音频文件
 - **批量处理**：一次粘贴多条，自动识别平台并排队转换；**单条右键重试**、失败项一键重试
@@ -45,7 +43,7 @@
 - **双形态分发**：单文件版（双击即用）与目录版（启动快、组件可放 exe 旁边、整目录可拷贝）同时提供
 - **内置 ffmpeg**：使用 `imageio-ffmpeg`，开箱即用无需手动配置
 - **稳健处理**：防风控间隔、失败自动重试、文件重名自动编号、转换 CSV 报告（默认只留一份）
-- **双界面**：图形界面（PySide6）+ 命令行（`douyin-mp3`）
+- **双界面**：图形界面（PySide6）+ 命令行（`musicgrab`）
 
 ## 3. 环境准备
 
@@ -65,7 +63,7 @@
 ```powershell
 # 克隆仓库（示例）
 git clone <your-repo-url>
-cd douyin-mp3
+cd musicgrab
 
 # 安装依赖
 pip install -r requirements.txt
@@ -84,16 +82,16 @@ pip install -e ".[dev]"
 ```powershell
 # 成品（推荐）：双击 dist\MusicGrab.exe，无控制台窗口
 # 源码方式（不想看到控制台窗口时用 pythonw）
-pythonw -m douyin_mp3
+pythonw -m musicgrab
 # 或双击项目根目录的 乐取.pyw
 
 # 安装包方式（pip install -e . 后）
-pythonw -m douyin_mp3
+pythonw -m musicgrab
 # 或
 乐取 MusicGrab
 
 # 命令行模式（需要控制台输出）
-python -m douyin_mp3 convert "https://v.douyin.com/xxx/" -o "D:\Music"
+python -m musicgrab convert "https://v.douyin.com/xxx/" -o "D:\Music"
 ```
 
 > **关于黑色控制台窗口一闪而过**：打包版（`--windowed`）本身不附带控制台，
@@ -117,37 +115,37 @@ python -m douyin_mp3 convert "https://v.douyin.com/xxx/" -o "D:\Music"
 
 ```powershell
 # 抖音 / 快手 / 酷狗（内置解析器，默认 auto 即可）
-douyin-mp3 convert "https://v.douyin.com/xxxxxxx/" "https://v.kuaishou.com/xxxxxx" "https://www.kugou.com/mixsong/xxxxxx.html" -q 192 -o "D:\Music\车机音乐"
+musicgrab convert "https://v.douyin.com/xxxxxxx/" "https://v.kuaishou.com/xxxxxx" "https://www.kugou.com/mixsong/xxxxxx.html" -q 192 -o "D:\Music\车机音乐"
 
 # B站、微博、网易云等（自动走 yt-dlp）
-douyin-mp3 convert "https://www.bilibili.com/video/BV1xx411c7mD" "https://music.163.com/song?id=xxxx" -q 320
+musicgrab convert "https://www.bilibili.com/video/BV1xx411c7mD" "https://music.163.com/song?id=xxxx" -q 320
 
 # 需登录站点：从已登录的浏览器读取 cookies（使用前请完全退出该浏览器）
-douyin-mp3 convert "https://m.ixigua.com/video/xxxx" --cookies-from-browser edge
+musicgrab convert "https://m.ixigua.com/video/xxxx" --cookies-from-browser edge
 
 # 使用本地 cookies.txt（Netscape 格式）
-douyin-mp3 convert "https://y.qq.com/n/ryqq/songDetail/xxx" --cookies ".\cookies.txt"
+musicgrab convert "https://y.qq.com/n/ryqq/songDetail/xxx" --cookies ".\cookies.txt"
 
 # 多平台混合 + 代理（境外站点）
-douyin-mp3 convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xxxxxxxx" `
+musicgrab convert "分享口令 https://v.douyin.com/aaa/" "https://youtu.be/xxxxxxxx" `
   --quality 320 --source auto --engine auto --proxy http://127.0.0.1:7890 --skip-existing
 
 # 本地视频文件直接提取音轨（可与网络链接混合）
-douyin-mp3 convert "D:\视频\MV.mp4" "D:\视频\翻唱.mkv" -q 320 -f flac
+musicgrab convert "D:\视频\MV.mp4" "D:\视频\翻唱.mkv" -q 320 -f flac
 
 # 整个文件夹递归扫描（含子目录，自动过滤支持的格式）
-douyin-mp3 convert "D:\视频\演唱会" -q 320 -f mp3
+musicgrab convert "D:\视频\演唱会" -q 320 -f mp3
 
 # 最佳 VBR（MP3 专用）+ 嵌入封面
-douyin-mp3 convert "https://v.douyin.com/aaa/" -q v0 -f mp3
+musicgrab convert "https://v.douyin.com/aaa/" -q v0 -f mp3
 
 # BEST：直接复制源音轨，不转码、零损失（输出扩展名随源而定）
-douyin-mp3 convert "https://www.bilibili.com/video/BV1xx411c7mD" -f best
+musicgrab convert "https://www.bilibili.com/video/BV1xx411c7mD" -f best
 
 # 检查 yt-dlp / ffmpeg 组件是否有新版本（打包后内置组件不会自动更新）
-douyin-mp3 check-update
-douyin-mp3 check-update --json          # 脚本化处理
-douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效）
+musicgrab check-update
+musicgrab check-update --json          # 脚本化处理
+musicgrab check-update --upgrade       # 直接下载安装（重启后生效）
 ```
 
 #### 命令行参数说明
@@ -236,7 +234,7 @@ douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效�
 > （Chrome / Edge 给 `text/uri-list`，Chromium 还会用 `text/uri-list;charset=utf-8`
 > 这种带参数的自定义格式名，Firefox 给 `text/x-moz-url`），实际体验不稳定，
 > v1.8.0 先只保留文件 / 文件夹拖放。把网址复制后粘贴到输入框效果一样。
-> 需要恢复时把 `douyin_mp3/dragdrop.py` 里的 `ALLOW_LINK_DROP` 改成 `True` 即可。
+> 需要恢复时把 `musicgrab/dragdrop.py` 里的 `ALLOW_LINK_DROP` 改成 `True` 即可。
 
 所有导入方式都会按 URL / 绝对路径自动去重，并可和手动粘贴的链接混在一起批量处理。
 
@@ -293,9 +291,9 @@ douyin-mp3 check-update --upgrade       # 直接下载安装（重启后生效�
 **命令行同样可用**：
 
 ```powershell
-douyin-mp3 check-update              # 打印当前版本与最新版本
-douyin-mp3 check-update --json       # 结构化输出，便于脚本处理
-douyin-mp3 check-update --upgrade    # 直接下载安装（重启后生效）
+musicgrab check-update              # 打印当前版本与最新版本
+musicgrab check-update --json       # 结构化输出，便于脚本处理
+musicgrab check-update --upgrade    # 直接下载安装（重启后生效）
 ```
 
 ```text
@@ -330,7 +328,7 @@ douyin-mp3 check-update --upgrade    # 直接下载安装（重启后生效）
 | `D:\share\latest.json` 或 `file:///D:/share/latest.json` | **本地文件**：内网共享目录、U 盘，完全离线可用 |
 | 环境变量 `MUSICGRAB_UPDATE_MANIFEST` | 临时换源、调试验证 |
 
-配置位置：`douyin_mp3\release.py` 的 `RELEASE_MANIFEST_URL`。
+配置位置：`musicgrab\release.py` 的 `RELEASE_MANIFEST_URL`。
 清单里指向的发布包也可以是本地文件路径（内网共享目录同理）。
 
 清单格式（`dist/release/latest.json` 由 `packaging/make_manifest.py` 生成）：

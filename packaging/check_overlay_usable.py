@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from douyin_mp3 import updater  # noqa: E402
+from musicgrab import updater  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp(prefix="mg_probe_"))
 updater.overlay_root = lambda: tmp  # type: ignore[assignment]
@@ -29,7 +29,7 @@ probe = tmp / "probe.py"
 probe.write_text(
     "import sys, traceback\n"
     f"sys.path.insert(0, {str(ROOT)!r})\n"
-    "from douyin_mp3 import updater\n"
+    "from musicgrab import updater\n"
     f"updater.overlay_root = lambda: {str(tmp)!r}\n"
     "updater.apply_overlay()\n"
     "try:\n"

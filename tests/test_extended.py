@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from douyin_mp3.config import ConvertOptions
-from douyin_mp3.cookies import CookieError, normalize_browser
-from douyin_mp3.generic import _build_opts, _friendly_error
-from douyin_mp3.kuaishou import (
+from musicgrab.config import ConvertOptions
+from musicgrab.cookies import CookieError, normalize_browser
+from musicgrab.generic import _build_opts, _friendly_error
+from musicgrab.kuaishou import (
     KuaishouParseError,
     parse_kuaishou_html,
 )
-from douyin_mp3.kugou import (
+from musicgrab.kugou import (
     _extract_smarty,
     _extract_title_artist,
     _resolve_ecid_url,
@@ -111,7 +111,7 @@ def test_normalize_browser():
 def test_load_requests_cookies_missing_file(tmp_path):
     import requests
 
-    from douyin_mp3.cookies import load_requests_cookies
+    from musicgrab.cookies import load_requests_cookies
 
     with pytest.raises(CookieError):
         load_requests_cookies(requests.Session(), cookies_file=str(tmp_path / "nope.txt"))

@@ -171,6 +171,6 @@ def patched_exec(self):
 
 
 QApplication.exec = patched_exec
-from douyin_mp3.gui import run_gui  # noqa: E402
+from musicgrab.gui import run_gui  # noqa: E402
 
 raise SystemExit(run_gui())

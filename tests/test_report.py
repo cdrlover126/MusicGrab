@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from douyin_mp3.batch import BatchProcessor
-from douyin_mp3.config import REPORT_FILE_NAME, ConvertOptions
+from musicgrab.batch import BatchProcessor
+from musicgrab.config import REPORT_FILE_NAME, ConvertOptions
 
 ROWS = [
     {

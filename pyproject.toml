@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "douyin-mp3"
+name = "musicgrab"
 version = "1.8.0"
 description = "乐取 MusicGrab：多平台音轨批量提取并转为车机可播放音频的桌面应用（双引擎解析 / 智能代理路由 / 内置组件自检升级）"
 readme = "README.md"
@@ -29,13 +29,13 @@ gui = ["PySide6>=6.6"]
 dev = ["pytest>=8", "pyinstaller>=6"]
 
 [project.scripts]
-douyin-mp3 = "douyin_mp3.cli:main"
+musicgrab = "musicgrab.cli:main"
 
 [project.gui-scripts]
-MusicGrab = "douyin_mp3.app:run"
+MusicGrab = "musicgrab.app:run"
 
 [tool.setuptools.packages.find]
-include = ["douyin_mp3*"]
+include = ["musicgrab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

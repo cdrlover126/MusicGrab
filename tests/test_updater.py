@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3 import updater
+from musicgrab import updater
 
 
 # ── 版本比较 ────────────────────────────────────────────────
@@ -183,7 +183,7 @@ def test_apply_overlay_installs_finder_and_ignores_missing(tmp_path, monkeypatch
     result = updater.apply_overlay()
     assert result == {"ytdlp": False, "ffmpeg": False}
     # 覆盖层为空时不应再装新的 finder。
-    # 注意：导入 douyin_mp3 时会按真实覆盖层装过一个，这里只比较「新增」部分。
+    # 注意：导入 musicgrab 时会按真实覆盖层装过一个，这里只比较「新增」部分。
     added = [f for f in sys.meta_path if not any(f is old for old in before)]
     assert not any(isinstance(f, updater._ExternalPackageFinder) for f in added)
 
@@ -250,7 +250,7 @@ def test_apply_ffmpeg_overlay_sets_env(tmp_path, monkeypatch):
 
 # ── ffmpeg 选择优先级 ───────────────────────────────────────
 def test_find_ffmpeg_prefers_overlay(tmp_path, monkeypatch):
-    from douyin_mp3 import converter
+    from musicgrab import converter
 
     overlay = tmp_path / "MusicGrab"
     directory = overlay / "ffmpeg"
@@ -263,7 +263,7 @@ def test_find_ffmpeg_prefers_overlay(tmp_path, monkeypatch):
 
 
 def test_find_ffmpeg_respects_manual_path(tmp_path, monkeypatch):
-    from douyin_mp3 import converter
+    from musicgrab import converter
 
     overlay = tmp_path / "MusicGrab"
     directory = overlay / "ffmpeg"
@@ -313,7 +313,7 @@ def test_component_status_summary_text():
 # ── CLI 子命令 ──────────────────────────────────────────────
 def test_cli_check_update_runs_offline(monkeypatch, capsys):
     """`check-update` 在网络失败时也应正常输出，不抛异常。"""
-    from douyin_mp3 import cli
+    from musicgrab import cli
 
     def boom(_pkg):
         raise updater.UpdateError("网络不可达")
@@ -330,7 +330,7 @@ def test_cli_check_update_runs_offline(monkeypatch, capsys):
 def test_cli_check_update_json_output(monkeypatch, capsys):
     import json
 
-    from douyin_mp3 import cli
+    from musicgrab import cli
 
     fake = updater.RemotePackage(
         package="yt-dlp", version="2026.10.26", url="u", sha256="s", size=1, source="pypi.org"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from douyin_mp3.proxy import (
+from musicgrab.proxy import (
     DOMESTIC_DOMAINS,
     OVERSEAS_DOMAINS,
     ROUTE_MODES,
@@ -76,8 +76,8 @@ def test_overseas_and_domestic_sets_do_not_overlap():
 
 def test_builtin_clients_do_not_hardcode_proxy():
     """回归：内置解析器的客户端不应固定代理，否则会绕过逐条路由决策。"""
-    from douyin_mp3.batch import BatchProcessor
-    from douyin_mp3.config import ConvertOptions
+    from musicgrab.batch import BatchProcessor
+    from musicgrab.config import ConvertOptions
 
     options = ConvertOptions(proxy="http://127.0.0.1:7890", route_mode="auto")
     processor = BatchProcessor(options)
@@ -87,9 +87,9 @@ def test_builtin_clients_do_not_hardcode_proxy():
 
 def test_apply_route_switches_between_direct_and_proxy():
     """回归：同一客户端应在直连与代理之间随路由切换。"""
-    from douyin_mp3.batch import BatchProcessor
-    from douyin_mp3.config import ConvertOptions
-    from douyin_mp3.proxy import Route
+    from musicgrab.batch import BatchProcessor
+    from musicgrab.config import ConvertOptions
+    from musicgrab.proxy import Route
 
     options = ConvertOptions(proxy="http://127.0.0.1:7890", route_mode="auto")
     processor = BatchProcessor(options)

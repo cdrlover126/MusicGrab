@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from douyin_mp3 import tls
-from douyin_mp3.config import overlay_root
+from musicgrab import tls
+from musicgrab.config import overlay_root
 
 
 def test_overlay_root_is_under_localappdata():
@@ -63,7 +63,7 @@ def test_updater_http_uses_fallback(monkeypatch):
     """升级相关的网络请求必须走 verify 兜底。"""
     import inspect
 
-    from douyin_mp3 import updater
+    from musicgrab import updater
 
     src = inspect.getsource(updater)
     assert "verify=requests_verify(overlay_root())" in src

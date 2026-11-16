@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3.local_media import collect_media_paths, is_media_file
+from musicgrab.local_media import collect_media_paths, is_media_file
 
 
 def _touch(path: Path, data: bytes = b"x") -> Path:

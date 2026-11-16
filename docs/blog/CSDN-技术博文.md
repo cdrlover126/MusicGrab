@@ -90,8 +90,8 @@
 ### 目录结构
 
 ```
-douyin-mp3/
-├── douyin_mp3/
+musicgrab/
+├── musicgrab/
 │   ├── __init__.py      # 名称/版本/APP_ID + 控制台窗口抑制
 │   ├── cli.py           # 命令行入口（argparse）
 │   ├── gui.py           # PySide6 图形界面
@@ -464,7 +464,7 @@ v1.8.0 支持把文件、文件夹直接拖进窗口。看似只是接个 `dropE
 | Chromium 自定义格式 | `text/uri-list;charset=utf-8`（**带参数**，`hasFormat("text/uri-list")` 返回 False） |
 | Firefox 拖标签页 | `text/x-moz-url`（第一行网址、第二行标题） |
 
-程序侧把这些格式都兼容了（`douyin_mp3/dragdrop.py`），但浏览器本身还有个死结：**一次只能拖一个标签页**，多标签必须先"复制所有标签页网址"再粘贴——那不如直接粘贴。于是 v1.8.0 先把这个功能关掉（`dragdrop.ALLOW_LINK_DROP = False`），只保留稳定的文件 / 文件夹拖放；等浏览器侧有更好的方案再打开开关。
+程序侧把这些格式都兼容了（`musicgrab/dragdrop.py`），但浏览器本身还有个死结：**一次只能拖一个标签页**，多标签必须先"复制所有标签页网址"再粘贴——那不如直接粘贴。于是 v1.8.0 先把这个功能关掉（`dragdrop.ALLOW_LINK_DROP = False`），只保留稳定的文件 / 文件夹拖放；等浏览器侧有更好的方案再打开开关。
 
 > 顺带修掉一个体验问题：转换报告原先每次批量都新建 `转换报告_时间戳.csv`，输出目录很快堆满几十个文件。现在默认**覆盖同名** `转换报告.csv`（输出目录最多一份），需要留历史可在「输出设置 → 转换报告」切换，或 CLI `--report history / none`。
 
@@ -913,9 +913,9 @@ python -m PyInstaller --noconfirm --clean `
   --version-file packaging\version_info.txt `
   --collect-binaries imageio_ffmpeg `
   --collect-all yt_dlp `
-  --hidden-import douyin_mp3.gui `
+  --hidden-import musicgrab.gui `
   --hidden-import mutagen.id3 `
-  douyin_mp3\app.py
+  musicgrab\app.py
 ```
 
 产物 **102MB**（含 yt-dlp 全量 + 内置 ffmpeg + PySide6），单文件、双击即用。

@@ -15,7 +15,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from douyin_mp3 import updater  # noqa: E402
+from musicgrab import updater  # noqa: E402
 
 _orig_exec = QApplication.exec
 
@@ -69,6 +69,6 @@ def patched_exec(self):
 
 QApplication.exec = patched_exec
 
-from douyin_mp3.gui import run_gui  # noqa: E402
+from musicgrab.gui import run_gui  # noqa: E402
 
 run_gui()

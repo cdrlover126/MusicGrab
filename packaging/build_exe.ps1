@@ -16,10 +16,10 @@ $common = @(
   "--version-file", "packaging\version_info.txt",
   "--collect-all", "imageio_ffmpeg",
   "--collect-all", "yt_dlp",
-  "--hidden-import", "douyin_mp3",
-  "--hidden-import", "douyin_mp3.gui",
+  "--hidden-import", "musicgrab",
+  "--hidden-import", "musicgrab.gui",
   "--hidden-import", "mutagen.id3",
-  "douyin_mp3\app.py"
+  "musicgrab\app.py"
 )
 
 Write-Host "[1/5] 生成图标..."

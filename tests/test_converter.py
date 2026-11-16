@@ -5,7 +5,7 @@ import subprocess
 import pytest
 from mutagen.id3 import ID3
 
-from douyin_mp3.converter import (
+from musicgrab.converter import (
     Mp3Meta,
     convert_to_audio,
     convert_to_mp3,

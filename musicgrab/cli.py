@@ -20,7 +20,7 @@ from .proxy import ROUTE_MODES
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="douyin-mp3",
+        prog="musicgrab",
         description=(
             "批量提取视频中的音乐/歌曲为车机可播放的 MP3"
             "（抖音/快手/酷狗用内置解析器，B站/YouTube/微博/网易云等站点走 yt-dlp 通用引擎）"

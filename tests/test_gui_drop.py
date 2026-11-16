@@ -38,7 +38,7 @@ def test_line_edit_and_plain_text_edit_accept_drops_by_default(app):
 
 
 def test_disable_child_drops_turns_off_children(app):
-    from douyin_mp3.gui import disable_child_drops
+    from musicgrab.gui import disable_child_drops
 
     window = QWidget()
     layout = QVBoxLayout(window)
@@ -58,7 +58,7 @@ def test_disable_child_drops_turns_off_children(app):
 
 
 def test_disable_child_drops_is_idempotent(app):
-    from douyin_mp3.gui import disable_child_drops
+    from musicgrab.gui import disable_child_drops
 
     window = QWidget()
     layout = QVBoxLayout(window)
@@ -72,7 +72,7 @@ def test_gui_source_calls_disable_child_drops():
     """回归：主窗口初始化时必须调用 disable_child_drops。"""
     import inspect
 
-    import douyin_mp3.gui as gui_mod
+    import musicgrab.gui as gui_mod
 
     src = inspect.getsource(gui_mod)
     assert "disable_child_drops(self, keep=(self.links_edit,))" in src
@@ -86,7 +86,7 @@ def test_gui_source_has_no_app_level_drop_filter():
     """
     import inspect
 
-    import douyin_mp3.gui as gui_mod
+    import musicgrab.gui as gui_mod
 
     src = inspect.getsource(gui_mod)
     assert "installEventFilter" not in src

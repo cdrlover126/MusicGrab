@@ -35,7 +35,7 @@ _orig_exec = QApplication.exec
 
 
 def make_samples() -> list[Path]:
-    from douyin_mp3.converter import find_ffmpeg
+    from musicgrab.converter import find_ffmpeg
 
     ff = find_ffmpeg()
     paths: list[Path] = []
@@ -148,7 +148,7 @@ QApplication.exec = patched
 sample_paths = make_samples()
 print("示例视频:", [p.name for p in sample_paths])
 
-from douyin_mp3.gui import run_gui  # noqa: E402
+from musicgrab.gui import run_gui  # noqa: E402
 
 run_gui()
 print("插图输出目录:", OUT)

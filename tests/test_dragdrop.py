@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3.dragdrop import (
+from musicgrab.dragdrop import (
     URL_LIST_MIME,
     file_url_to_path,
     is_drop_supported,
@@ -258,13 +258,13 @@ def test_file_url_to_path_rejects_http() -> None:
 
 def test_link_drop_is_disabled_by_default():
     """v1.8.0 起暂时关闭浏览器标签页 / 链接拖放。"""
-    from douyin_mp3.dragdrop import ALLOW_LINK_DROP
+    from musicgrab.dragdrop import ALLOW_LINK_DROP
 
     assert ALLOW_LINK_DROP is False
 
 
 def test_split_drop_payload_drops_links_when_disabled(tmp_path: Path):
-    from douyin_mp3.dragdrop import parse_drop_data, split_drop_payload
+    from musicgrab.dragdrop import parse_drop_data, split_drop_payload
 
     video = tmp_path / "a.mp4"
     video.write_bytes(b"x")
@@ -281,7 +281,7 @@ def test_split_drop_payload_drops_links_when_disabled(tmp_path: Path):
 
 
 def test_split_drop_payload_keeps_links_when_enabled(tmp_path: Path):
-    from douyin_mp3.dragdrop import parse_drop_data, split_drop_payload
+    from musicgrab.dragdrop import parse_drop_data, split_drop_payload
 
     mime = FakeMime(urls=["https://v.douyin.com/abc/"])
     payload = parse_drop_data(mime)

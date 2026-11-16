@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from douyin_mp3.cli import main
+from musicgrab.cli import main
 
 
 def run() -> None:

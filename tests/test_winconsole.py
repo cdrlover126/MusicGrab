@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 
-from douyin_mp3 import winconsole
+from musicgrab import winconsole
 
 
 def test_parent_has_console_returns_bool():

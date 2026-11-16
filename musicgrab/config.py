@@ -14,7 +14,7 @@ CHANNELS = 2
 ID3_VERSION = 3
 
 DEFAULT_OUTPUT_DIR = Path.home() / "Music" / "MusicGrab"
-TEMP_DIR_NAME = ".douyin_mp3_tmp"
+TEMP_DIR_NAME = ".musicgrab_tmp"
 #: 覆盖层目录名（外置 yt-dlp / ffmpeg / CA 证书包都放这里）
 OVERLAY_DIR_NAME = "MusicGrab"
 

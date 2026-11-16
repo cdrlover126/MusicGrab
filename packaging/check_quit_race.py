@@ -35,7 +35,7 @@ PROBE.write_text(
     "    QTimer.singleShot(100, self.quit)\n"
     "    return _orig()\n"
     "QApplication.exec = patched\n"
-    "from douyin_mp3.gui import run_gui\n"
+    "from musicgrab.gui import run_gui\n"
     "sys.exit(run_gui())\n",
     encoding="utf-8",
 )
@@ -62,7 +62,7 @@ PROBE.write_text(
     "    QTimer.singleShot(1600, self.quit)\n"
     "    return _orig()\n"
     "QApplication.exec = patched\n"
-    "from douyin_mp3.gui import run_gui\n"
+    "from musicgrab.gui import run_gui\n"
     "sys.exit(run_gui())\n",
     encoding="utf-8",
 )
@@ -84,7 +84,7 @@ WORK = ROOT / "packaging" / "_race_sample.mp4"
 if not WORK.exists():
     import subprocess
 
-    from douyin_mp3.converter import find_ffmpeg
+    from musicgrab.converter import find_ffmpeg
 
     subprocess.run(
         [find_ffmpeg(), "-y", "-hide_banner",
@@ -112,7 +112,7 @@ PROBE.write_text(
     "    QTimer.singleShot(1800, self.quit)\n"
     "    return _orig()\n"
     "QApplication.exec = patched\n"
-    "from douyin_mp3.gui import run_gui\n"
+    "from musicgrab.gui import run_gui\n"
     "sys.exit(run_gui())\n",
     encoding="utf-8",
 )

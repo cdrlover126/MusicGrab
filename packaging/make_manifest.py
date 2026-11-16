@@ -6,7 +6,7 @@
 产物: dist/release/latest.json
 
 把这个文件放到任意静态托管（Gitea raw、对象存储、博客附件……），
-再把它的地址填进 ``douyin_mp3/release.py`` 的 ``RELEASE_MANIFEST_URL``
+再把它的地址填进 ``musicgrab/release.py`` 的 ``RELEASE_MANIFEST_URL``
 （或运行时设置环境变量 ``MUSICGRAB_UPDATE_MANIFEST``），
 程序启动后就能提示"有新版本"并提供一键下载。
 """

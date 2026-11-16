@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from douyin_mp3.batch import BatchProcessor
-from douyin_mp3.config import ConvertOptions
-from douyin_mp3.converter import sanitize_filename
-from douyin_mp3.parser import (
+from musicgrab.batch import BatchProcessor
+from musicgrab.config import ConvertOptions
+from musicgrab.converter import sanitize_filename
+from musicgrab.parser import (
     classify_platform,
     extract_aweme_id,
     extract_urls,
@@ -68,7 +68,7 @@ def test_normalize_bilibili_passthrough_others():
 
 def test_normalize_bilibili_short_link(monkeypatch):
     """b23.tv 短链：解析成功用最终地址，失败保留原链接。"""
-    import douyin_mp3.parser as p
+    import musicgrab.parser as p
 
     monkeypatch.setattr(
         p,

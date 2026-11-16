@@ -1006,7 +1006,7 @@ def run_gui() -> int:
                 "升级方法：到下载来源获取新版发布包，"
                 "关闭程序后覆盖程序目录即可。\n\n"
                 "若希望程序自动提示并一键下载，"
-                "可在 douyin_mp3\\release.py 里配置 RELEASE_MANIFEST_URL"
+                "可在 musicgrab\\release.py 里配置 RELEASE_MANIFEST_URL"
                 "（支持 HTTP 地址或本地文件路径），"
                 "或设置环境变量 MUSICGRAB_UPDATE_MANIFEST。",
             )

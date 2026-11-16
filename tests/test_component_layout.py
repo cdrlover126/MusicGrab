@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3 import updater
-from douyin_mp3.updater import FFMPEG, FFMPEG_VERSION_FILE, YTDLP
+from musicgrab import updater
+from musicgrab.updater import FFMPEG, FFMPEG_VERSION_FILE, YTDLP
 
 
 @pytest.fixture

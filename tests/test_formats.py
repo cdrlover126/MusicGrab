@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from douyin_mp3.batch import BatchProcessor
-from douyin_mp3.config import (
+from musicgrab.batch import BatchProcessor
+from musicgrab.config import (
     AUDIO_EXTENSIONS,
     DEFAULT_QUALITY,
     OUTPUT_FORMATS,
@@ -14,7 +14,7 @@ from douyin_mp3.config import (
     resolve_bitrate,
     resolve_output_format,
 )
-from douyin_mp3.converter import _audio_bitrate_args, resolve_extension
+from musicgrab.converter import _audio_bitrate_args, resolve_extension
 
 
 def test_output_formats_cover_common_types():
@@ -124,7 +124,7 @@ def test_bitrate_args_follow_format_rules():
 
 
 def test_best_extension_mapping(monkeypatch, tmp_path):
-    from douyin_mp3 import converter
+    from musicgrab import converter
 
     monkeypatch.setattr(
         converter, "probe_media_info", lambda _ff, _src: converter.MediaInfo(1.0, "opus")
@@ -137,7 +137,7 @@ def test_best_extension_mapping(monkeypatch, tmp_path):
 
 
 def test_best_extension_falls_back_to_source_suffix(monkeypatch, tmp_path):
-    from douyin_mp3 import converter
+    from musicgrab import converter
 
     monkeypatch.setattr(
         converter, "probe_media_info", lambda _ff, _src: converter.MediaInfo(1.0, "unknown")

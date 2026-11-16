@@ -71,11 +71,11 @@
 
 ```powershell
 # 方式一：直接用浏览器已登录的 cookies（需完全退出浏览器）
-douyin-mp3 convert "https://m.ixigua.com/video/xxx" --cookies-from-browser edge
+musicgrab convert "https://m.ixigua.com/video/xxx" --cookies-from-browser edge
 
 # 方式二：导出 cookies.txt（Netscape 格式）后指定文件
-douyin-mp3 convert "https://m.ixigua.com/video/xxx" --cookies cookies.txt
+musicgrab convert "https://m.ixigua.com/video/xxx" --cookies cookies.txt
 
 # 强制走 yt-dlp（处理抖音需 cookies 的场景）
-douyin-mp3 convert "https://www.douyin.com/video/xxx" --engine generic --cookies-from-browser edge
+musicgrab convert "https://www.douyin.com/video/xxx" --engine generic --cookies-from-browser edge
 ```

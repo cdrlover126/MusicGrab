@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from douyin_mp3 import updater
-from douyin_mp3.updater import (
+from musicgrab import updater
+from musicgrab.updater import (
     FFMPEG,
     YTDLP,
     ComponentStatus,

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 import requests
 
-from douyin_mp3.config import ConvertOptions
-from douyin_mp3.proxy import (
+from musicgrab.config import ConvertOptions
+from musicgrab.proxy import (
     ProxyUnreachableError,
     build_session,
     check_proxy_reachable,

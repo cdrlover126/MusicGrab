@@ -16,11 +16,11 @@ from PyInstaller.archive.readers import CArchiveReader
 reader = CArchiveReader(str(exe))
 names = list(reader.toc)
 
-for pkg in ("yt_dlp", "douyin_mp3", "imageio_ffmpeg"):
+for pkg in ("yt_dlp", "musicgrab", "imageio_ffmpeg"):
     hits = [n for n in names if n.startswith(pkg.replace(".", "\\"))]
     print(f"{pkg:16} 内嵌条目 {len(hits):5}")
 
-for rel in ("yt_dlp\\version.py", "douyin_mp3\\updater.py", "douyin_mp3\\__init__.py"):
+for rel in ("yt_dlp\\version.py", "musicgrab\\updater.py", "musicgrab\\__init__.py"):
     print(f"  {rel:32} {'存在' if rel in names else '缺失!!'}")
 
 raw = reader.extract("yt_dlp\\version.py")
